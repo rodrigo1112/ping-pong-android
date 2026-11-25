@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0f19">
+  <title>Ping Pong</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main id="app">
+    <header id="hud">
+      <button id="pause-btn" class="icon-btn left-btn hidden" type="button" aria-label="Pausar partida" title="Pausa">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+          <rect x="6" y="5" width="4" height="14" rx="1.2" fill="currentColor"/>
+          <rect x="14" y="5" width="4" height="14" rx="1.2" fill="currentColor"/>
+        </svg>
+      </button>
+      <div class="score player">
+        <span class="label">TÚ</span>
+        <span id="score-player" class="value">0</span>
+      </div>
+      <div class="hud-center">
+        <span id="diff-label">NORMAL</span>
+        <span class="target">PRIMERO A 7</span>
+      </div>
+      <div class="score ai">
+        <span id="score-ai" class="value">0</span>
+        <span class="label">IA</span>
+      </div>
+      <button id="mute-btn" class="icon-btn" type="button" aria-label="Silenciar audio" title="Silenciar">
+        <svg class="icon-on" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+          <path d="M4 9v6h4l5 4V5L8 9H4z" fill="currentColor"/>
+          <path d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+        <svg class="icon-off" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+          <path d="M4 9v6h4l5 4V5L8 9H4z" fill="currentColor"/>
+          <path d="M16.5 9.5l5 5M21.5 9.5l-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+      </button>
+    </header>
+
+    <div id="stage">
+      <canvas id="game" aria-label="Campo de juego de Pong"></canvas>
+
+      <!-- Menú de inicio -->
+      <section id="menu" class="overlay visible">
+        <h1 class="title">NEON<span>PONG</span></h1>
+        <p class="subtitle">Primero en llegar a 7 puntos gana</p>
+        <div class="difficulty" role="radiogroup" aria-label="Dificultad">
+          <button type="button" class="diff-btn" data-diff="easy" role="radio">Fácil</button>
+          <button type="button" class="diff-btn selected" data-diff="normal" role="radio">Normal</button>
+          <button type="button" class="diff-btn" data-diff="hard" role="radio">Difícil</button>
+        </div>
+        <button id="start-btn" type="button" class="primary-btn">JUGAR</button>
+        <ul class="controls-help">
+          <li>Arrastra el dedo por la pantalla para mover tu paleta</li>
+        </ul>
+      </section>
+
+      <!-- Pausa -->
+      <section id="pause" class="overlay">
+        <h2 class="overlay-title">PAUSA</h2>
+        <p class="subtitle">Toca CONTINUAR para volver a la partida</p>
+        <div class="btn-row">
+          <button id="resume-btn" type="button" class="primary-btn">CONTINUAR</button>
+          <button id="quit-btn" type="button" class="secondary-btn">MENÚ</button>
+        </div>
+      </section>
+
+      <!-- Fin de partida -->
+      <section id="gameover" class="overlay">
+        <h2 id="result-title" class="overlay-title">¡VICTORIA!</h2>
+        <p id="result-score" class="final-score">7 — 0</p>
+        <div class="btn-row">
+          <button id="restart-btn" type="button" class="primary-btn">REINICIAR</button>
+          <button id="menu-btn" type="button" class="secondary-btn">MENÚ</button>
+        </div>
+      </section>
+    </div>
+
+    <footer class="hint">Arrastra el dedo para mover la paleta</footer>
+  </main>
+
+  <script src="game.js"></script>
+</body>
+</html>
