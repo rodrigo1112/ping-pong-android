@@ -2,7 +2,10 @@ package com.arcade.pingpong;
 
 import android.os.Build;
 import android.os.Bundle;
+import android.view.View;
 import android.view.WindowManager;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
@@ -15,7 +18,14 @@ public class MainActivity extends BridgeActivity {
         super.onCreate(savedInstanceState);
         hideSystemBars();
         if (this.bridge != null && this.bridge.getWebView() != null) {
-            this.bridge.getWebView().getSettings().setMediaPlaybackRequiresUserGesture(false);
+            WebView webView = this.bridge.getWebView();
+            webView.setOverScrollMode(View.OVER_SCROLL_NEVER);
+            webView.setVerticalScrollBarEnabled(false);
+            webView.setHorizontalScrollBarEnabled(false);
+            WebSettings settings = webView.getSettings();
+            settings.setMediaPlaybackRequiresUserGesture(false);
+            settings.setSupportZoom(false);
+            settings.setBuiltInZoomControls(false);
         }
     }
 
