@@ -18,16 +18,16 @@
         </svg>
       </button>
       <div class="score player">
-        <span class="label">TÚ</span>
+        <span id="label-left" class="label">TÚ</span>
         <span id="score-player" class="value">0</span>
       </div>
       <div class="hud-center">
         <span id="diff-label">NORMAL</span>
-        <span class="target">PRIMERO A 7</span>
+        <span id="target-label" class="target">PRIMERO A 7</span>
       </div>
       <div class="score ai">
         <span id="score-ai" class="value">0</span>
-        <span class="label">IA</span>
+        <span id="label-right" class="label">IA</span>
       </div>
       <button id="mute-btn" class="icon-btn" type="button" aria-label="Silenciar audio" title="Silenciar">
         <svg class="icon-on" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
@@ -47,15 +47,27 @@
       <!-- Menú de inicio -->
       <section id="menu" class="overlay visible">
         <h1 class="title">NEON<span>PONG</span></h1>
-        <p class="subtitle">Primero en llegar a 7 puntos gana</p>
-        <div class="difficulty" role="radiogroup" aria-label="Dificultad">
+
+        <div class="mode-selector" role="radiogroup" aria-label="Modo de juego">
+          <button type="button" class="mode-btn selected" data-mode="vs-ai" role="radio" aria-checked="true">1J vs IA</button>
+          <button type="button" class="mode-btn" data-mode="2p" role="radio" aria-checked="false">2 Jugadores</button>
+          <button type="button" class="mode-btn" data-mode="survival" role="radio" aria-checked="false">Supervivencia</button>
+        </div>
+
+        <p id="menu-subtitle" class="subtitle">Primero en llegar a 7 puntos gana</p>
+
+        <div id="difficulty-group" class="difficulty" role="radiogroup" aria-label="Dificultad">
           <button type="button" class="diff-btn" data-diff="easy" role="radio">Fácil</button>
           <button type="button" class="diff-btn selected" data-diff="normal" role="radio">Normal</button>
           <button type="button" class="diff-btn" data-diff="hard" role="radio">Difícil</button>
         </div>
+
+        <div id="mode-badge" class="mode-badge hidden" aria-live="polite"></div>
+
         <button id="start-btn" type="button" class="primary-btn">JUGAR</button>
-        <ul class="controls-help">
-          <li>Arrastra el dedo por la pantalla para mover tu paleta</li>
+
+        <ul id="controls-help" class="controls-help">
+          <li>Arrastrá el dedo para mover · Empujá adelante o deslizá rápido al golpear para REMATE</li>
         </ul>
       </section>
 
@@ -65,6 +77,7 @@
         <p class="subtitle">Toca CONTINUAR para volver a la partida</p>
         <div class="btn-row">
           <button id="resume-btn" type="button" class="primary-btn">CONTINUAR</button>
+          <button id="pause-restart-btn" type="button" class="secondary-btn">REINICIAR</button>
           <button id="quit-btn" type="button" class="secondary-btn">MENÚ</button>
         </div>
       </section>
@@ -73,6 +86,7 @@
       <section id="gameover" class="overlay">
         <h2 id="result-title" class="overlay-title">¡VICTORIA!</h2>
         <p id="result-score" class="final-score">7 — 0</p>
+        <p id="result-detail" class="subtitle hidden"></p>
         <div class="btn-row">
           <button id="restart-btn" type="button" class="primary-btn">REINICIAR</button>
           <button id="menu-btn" type="button" class="secondary-btn">MENÚ</button>
@@ -80,7 +94,7 @@
       </section>
     </div>
 
-    <footer class="hint">Arrastra el dedo para mover la paleta</footer>
+    <footer id="footer-hint" class="hint">Arrastrá para mover · Empujá adelante o deslizá rápido para REMATE</footer>
   </main>
 
   <script src="game.js"></script>

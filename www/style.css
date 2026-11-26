@@ -7,6 +7,8 @@
   --pink-bright: #f9a8d4;
   --violet: #a78bfa;
   --violet-bright: #c4b5fd;
+  --orange: #fb923c;
+  --orange-bright: #fdba74;
   --text: #e2e8f0;
   --muted: #64748b;
   --hud-space: 86px;
@@ -72,8 +74,9 @@ html, body {
 
 .score .label {
   font-size: 0.78rem;
-  letter-spacing: 0.22em;
+  letter-spacing: 0.2em;
   color: var(--muted);
+  white-space: nowrap;
 }
 
 .score .value {
@@ -86,6 +89,7 @@ html, body {
 
 .score.player .value { color: var(--cyan-bright); }
 .score.ai .value { color: var(--pink-bright); }
+.score .value.record-live { color: var(--orange-bright); }
 .score .value.bump { animation: bump 0.32s ease; }
 
 @keyframes bump {
@@ -100,10 +104,12 @@ html, body {
   align-items: center;
   gap: 2px;
   font-size: 0.68rem;
-  letter-spacing: 0.22em;
+  letter-spacing: 0.2em;
+  text-align: center;
 }
 #diff-label { color: var(--violet-bright); font-weight: 700; }
 .hud-center .target { color: var(--muted); }
+.hud-center .target.level-up { color: var(--orange-bright); font-weight: 700; }
 
 .icon-btn {
   position: absolute;
@@ -188,8 +194,8 @@ html, body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: clamp(10px, 3vh, 22px);
-  padding: 14px;
+  gap: clamp(8px, 2.5vh, 18px);
+  padding: 12px 16px;
   background: var(--panel);
   contain: layout style paint;
   opacity: 0;
@@ -198,8 +204,11 @@ html, body {
 }
 .overlay.visible { opacity: 1; pointer-events: auto; }
 
+.hidden { display: none !important; }
+.icon-btn.hidden { display: grid !important; opacity: 0; pointer-events: none; }
+
 .title {
-  font-size: clamp(2rem, 8.5vh, 4.6rem);
+  font-size: clamp(1.75rem, 7.2vh, 4.2rem);
   font-weight: 900;
   letter-spacing: 0.12em;
   line-height: 1;
@@ -213,37 +222,99 @@ html, body {
 }
 
 .overlay-title {
-  font-size: clamp(1.8rem, 7.5vh, 3.8rem);
+  font-size: clamp(1.7rem, 7vh, 3.6rem);
   font-weight: 900;
-  letter-spacing: 0.15em;
+  letter-spacing: 0.14em;
   line-height: 1;
   color: var(--violet-bright);
+  text-align: center;
 }
 .overlay-title.win { color: var(--cyan-bright); }
 .overlay-title.lose { color: var(--pink-bright); }
+.overlay-title.record { color: var(--orange-bright); }
 
 .subtitle {
   color: var(--muted);
-  letter-spacing: 0.06em;
-  font-size: clamp(0.8rem, 2.4vh, 1rem);
+  letter-spacing: 0.05em;
+  font-size: clamp(0.76rem, 2.2vh, 0.96rem);
   text-align: center;
 }
 
 .final-score {
   font-family: "Courier New", ui-monospace, monospace;
-  font-size: clamp(1.7rem, 6vh, 2.2rem);
+  font-size: clamp(1.5rem, 5.5vh, 2.2rem);
   font-weight: 700;
   color: var(--text);
+  text-align: center;
 }
 
-.difficulty { display: flex; gap: 10px; }
+.mode-selector,
+.difficulty {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.mode-btn {
+  min-width: 112px;
+  padding: 9px 14px;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--text);
+  background: rgba(34, 211, 238, 0.08);
+  border: 2px solid rgba(34, 211, 238, 0.4);
+  border-radius: 10px;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.12s ease;
+}
+.mode-btn:active {
+  transform: scale(0.97);
+  background: rgba(34, 211, 238, 0.2);
+}
+.mode-btn.selected {
+  color: #0b0f19;
+  background: var(--cyan);
+  border-color: var(--cyan-bright);
+  outline: 2px solid rgba(34, 211, 238, 0.32);
+}
+.mode-btn[data-mode="2p"].selected {
+  background: var(--pink);
+  border-color: var(--pink-bright);
+  outline-color: rgba(244, 114, 182, 0.32);
+}
+.mode-btn[data-mode="survival"].selected {
+  background: var(--orange);
+  border-color: var(--orange-bright);
+  outline-color: rgba(251, 146, 60, 0.35);
+}
+
+.mode-badge {
+  padding: 7px 16px;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--orange-bright);
+  background: rgba(251, 146, 60, 0.12);
+  border: 1.5px solid rgba(251, 146, 60, 0.45);
+  text-align: center;
+}
+.mode-badge.two-player {
+  color: var(--pink-bright);
+  background: rgba(244, 114, 182, 0.12);
+  border-color: rgba(244, 114, 182, 0.45);
+}
 
 .diff-btn,
 .secondary-btn {
-  min-width: 96px;
-  padding: 10px 16px;
+  min-width: 92px;
+  padding: 9px 15px;
   font: inherit;
-  font-size: 0.95rem;
+  font-size: 0.92rem;
   font-weight: 600;
   letter-spacing: 0.08em;
   color: var(--text);
@@ -268,10 +339,10 @@ html, body {
 }
 
 .primary-btn {
-  min-width: 168px;
-  padding: 12px 28px;
+  min-width: 164px;
+  padding: 11px 26px;
   font: inherit;
-  font-size: 1.05rem;
+  font-size: 1.02rem;
   font-weight: 800;
   letter-spacing: 0.2em;
   color: #0b0f19;
@@ -288,24 +359,32 @@ html, body {
   background: var(--cyan-bright);
 }
 
-.btn-row { display: flex; gap: 12px; align-items: center; }
+.btn-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  align-items: center;
+}
 
 .controls-help {
   list-style: none;
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 6px 18px;
-  font-size: 0.82rem;
+  gap: 4px 16px;
+  font-size: 0.8rem;
   color: var(--muted);
   text-align: center;
+  max-width: 92%;
 }
 
 .hint {
   font-size: 0.72rem;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.08em;
   color: var(--muted);
   flex-shrink: 0;
+  text-align: center;
 }
 
 @media (max-height: 520px) {
@@ -319,30 +398,43 @@ html, body {
     font-size: 1.75rem;
   }
   .score .label {
-    font-size: 0.7rem;
+    font-size: 0.68rem;
   }
   .hud-center {
-    font-size: 0.62rem;
+    font-size: 0.6rem;
   }
   .icon-btn {
     width: 34px;
     height: 34px;
   }
+  .overlay {
+    gap: clamp(6px, 2vh, 12px);
+    padding: 8px 12px;
+  }
+  .mode-btn {
+    min-width: 96px;
+    padding: 7px 11px;
+    font-size: 0.8rem;
+  }
+  .mode-badge {
+    padding: 5px 12px;
+    font-size: 0.76rem;
+  }
   .diff-btn,
   .secondary-btn {
-    min-width: 84px;
-    padding: 8px 14px;
-    font-size: 0.88rem;
+    min-width: 80px;
+    padding: 7px 12px;
+    font-size: 0.82rem;
   }
   .primary-btn {
-    min-width: 148px;
-    padding: 10px 24px;
-    font-size: 0.98rem;
+    min-width: 140px;
+    padding: 9px 20px;
+    font-size: 0.92rem;
   }
   .hint { display: none; }
-  .controls-help { font-size: 0.76rem; }
+  .controls-help { font-size: 0.72rem; }
 }
 
-@media (max-height: 360px) {
+@media (max-height: 350px) {
   .controls-help { display: none; }
 }
