@@ -2,12 +2,16 @@
 
 /**
  * NEON PONG — versión móvil Android (Capacitor) optimizada para GPU y batería.
- * - Modos: 1J vs IA (a 7 pts), 2 Jugadores local con multitáctil (a 7 pts),
- *   y Supervivencia / Récord (IA más rápida cada 5 golpes).
- * - Remate y efecto (Smash): empujar la paleta adelante o deslizar rápido al
- *   impactar dispara un tiro rojo/naranja más veloz y con leve curva.
- * - Tope estricto a 60 FPS, sprites neón pre-renderizados (cero shadowBlur),
- *   pools fijos sin GC y pausa total del bucle en reposo.
+ * - Modo Torneo principal (4 rondas: Cuartos, Semifinal, Final y Gran Campeón)
+ *   con escalado de IA, canchas alternadas, skins desbloqueables y guardado local.
+ * - Modos secundarios: Partida Rápida (Fácil/Normal/Difícil), 2 Jugadores
+ *   local con multitáctil y Supervivencia / Récord (IA acelera cada 5 golpes).
+ * - 4 estilos visuales 100% originales sin marcas registradas:
+ *   Neón Clásico, Retro Portátil 89, Fuego vs. Hielo y Cyberpunk 2099.
+ * - Música procedural distinta por cancha (Web Audio API) con desconexión
+ *   limpia de nodos y controles independientes de Música y SFX.
+ * - Protección térmica: fondos y sprites pre-renderizados en offscreen canvas,
+ *   cero shadowBlur en runtime, tope estricto a 60 FPS y DPR <= 1.5.
  */
 (() => {
   // ==========================================================
@@ -19,7 +23,8 @@
   const PADDLE_H = 100;
   const PADDLE_MARGIN = 28;
   const BALL_R = 8;
-  const WIN_SCORE = 7;
+  const QUICK_WIN_SCORE = 7;
+  const TOURNAMENT_WIN_SCORE = 5;
   const BALL_START_SPEED = 430;
   const BALL_MAX_SPEED = 1150;
   const BALL_SPEEDUP = 1.06;
@@ -31,73 +36,224 @@
 
   // Remate y efecto (Smash)
   const MAX_LUNGE_X = 24;
-  const SMASH_FORWARD_SPEED = 230;   // px lógicos/s hacia adelante
-  const SMASH_FORWARD_DISP = 16;     // desplazamiento relativo hacia adelante
-  const SMASH_FORWARD_WINDOW = 0.18; // ventana de tiempo (s) para remate frontal
-  const SMASH_SWIPE_SPEED = 740;     // px lógicos/s en deslizamiento vertical rápido
-  const SMASH_SWIPE_DIST = 26;       // recorrido vertical mínimo para evitar falsos positivos
-  const SMASH_SWIPE_WINDOW = 0.14;   // ventana de tiempo (s) para remate por deslizamiento
+  const SMASH_FORWARD_SPEED = 230;
+  const SMASH_FORWARD_DISP = 16;
+  const SMASH_FORWARD_WINDOW = 0.18;
+  const SMASH_SWIPE_SPEED = 740;
+  const SMASH_SWIPE_DIST = 26;
+  const SMASH_SWIPE_WINDOW = 0.14;
   const SMASH_SPEED_MULT = 1.28;
   const SMASH_MIN_SPEED = 740;
   const SMASH_MAX_SPEED = 1340;
-  const SMASH_CURVE_BASE = 285;      // aceleración lateral (px/s²) de la curva
-  const SMASH_CURVE_COMBO = 345;     // curva levemente mayor al combinar empuje + deslizamiento
+  const SMASH_CURVE_BASE = 285;
+  const SMASH_CURVE_COMBO = 345;
   const SMASH_EMBER_INTERVAL = 0.032;
 
   // Modo Supervivencia
   const SURVIVAL_HITS_PER_LEVEL = 5;
+
+  // Persistencia localStorage
   const STORAGE_KEYS = {
-    muted: 'neonpong-muted',
+    legacyMuted: 'neonpong-muted',
+    sfxMuted: 'neonpong-sfx-muted',
+    musicMuted: 'neonpong-music-muted',
     difficulty: 'neonpong-difficulty',
-    mode: 'neonpong-mode',
     survivalBest: 'neonpong-survival-best',
+    tournament: 'neonpong-tournament',
+    unlockedSkins: 'neonpong-unlocked-skins',
+    equippedSkin: 'neonpong-equipped-skin',
+    tournamentUseSkin: 'neonpong-tournament-use-skin',
   };
 
   const MODES = {
+    TOURNAMENT: 'tournament',
     VS_AI: 'vs-ai',
     TWO_P: '2p',
     SURVIVAL: 'survival',
   };
 
-  // Límites de rendimiento y memoria
+  // Límites térmicos, de rendimiento y memoria
   const MAX_FPS = 60;
-  const FRAME_INTERVAL = 1000 / MAX_FPS; // ~16.67 ms
-  const FRAME_TOLERANCE = 1.0;           // evita caídas por jitter en paneles de 60 Hz
+  const FRAME_INTERVAL = 1000 / MAX_FPS;
+  const FRAME_TOLERANCE = 1.0;
   const MAX_DPR = 1.5;
   const SPRITE_SCALE = 1.5;
   const MAX_PARTICLES = 64;
   const TRAIL_LENGTH = 12;
   const MAX_CALLOUTS = 3;
 
-  const COLORS = {
-    bg: '#0b0f19',
-    player: '#22d3ee',
-    ai: '#f472b6',
-    ball: '#f8fafc',
-    ballGlow: '#a5f3fc',
-    line: 'rgba(148, 163, 184, 0.22)',
-    violet: '#a78bfa',
-    smashOrange: '#fb923c',
-    smashRed: '#ef4444',
-  };
-
-  const PARTICLE_COLORS = [
-    COLORS.player,
-    COLORS.ai,
-    COLORS.violet,
-    COLORS.smashOrange,
-    COLORS.smashRed,
-  ];
   const COLOR_IDX_PLAYER = 0;
   const COLOR_IDX_AI = 1;
-  const COLOR_IDX_VIOLET = 2;
+  const COLOR_IDX_ACCENT = 2;
   const COLOR_IDX_SMASH_ORANGE = 3;
   const COLOR_IDX_SMASH_RED = 4;
 
+  // ==========================================================
+  //  Definición de 4 Skins / Canchas (100% libres de copyright)
+  // ==========================================================
+  const SKIN_ORDER = ['neon', 'retro89', 'fireice', 'cyber2099'];
+
+  const SKINS = {
+    neon: {
+      id: 'neon',
+      name: 'Neón Clásico',
+      arenaTitle: 'Arena Neón',
+      themeColor: '#0b0f19',
+      unlockHint: 'Desbloqueada desde el inicio',
+      styleDesc: 'Fondo nocturno con líneas cian y magenta',
+      pixelated: false,
+      previewBg: 'linear-gradient(90deg, #0b0f19 0%, #11192e 50%, #0b0f19 100%)',
+      playerColor: '#22d3ee',
+      aiColor: '#f472b6',
+      ballColor: '#f8fafc',
+      ballGlowInner: '#e0f2fe',
+      ballGlowMid: 'rgba(165, 243, 252, 0.58)',
+      ballGlowOuter: 'rgba(34, 211, 238, 0.18)',
+      ballGlowFade: 'rgba(34, 211, 238, 0)',
+      trailInner: 'rgba(165, 243, 252, 0.95)',
+      trailMid: 'rgba(34, 211, 238, 0.45)',
+      trailFade: 'rgba(34, 211, 238, 0)',
+      digitFill: '#a78bfa',
+      digitStrokeOuter: 'rgba(167, 139, 250, 0.16)',
+      digitStrokeMid: 'rgba(167, 139, 250, 0.34)',
+      digitStrokeInner: 'rgba(237, 233, 254, 0.75)',
+      serveText: 'rgba(226, 232, 240, 0.7)',
+      calloutStroke: 'rgba(11, 15, 25, 0.88)',
+      particles: ['#22d3ee', '#f472b6', '#a78bfa', '#fb923c', '#ef4444'],
+    },
+    retro89: {
+      id: 'retro89',
+      name: 'Retro Portátil 89',
+      arenaTitle: 'Retro Portátil 89',
+      themeColor: '#8bac0f',
+      unlockHint: 'Ganá la Ronda 2 (Semifinal) del Torneo',
+      styleDesc: 'Paleta verde oliva monocromática estilo portátil de 8 bits',
+      pixelated: true,
+      previewBg: 'linear-gradient(90deg, #9bbc0f 0%, #8bac0f 50%, #9bbc0f 100%)',
+      playerColor: '#0f380f',
+      aiColor: '#306230',
+      ballColor: '#0f380f',
+      ballGlowInner: '#306230',
+      ballGlowMid: 'rgba(48, 98, 48, 0.45)',
+      ballGlowOuter: 'rgba(15, 56, 15, 0.15)',
+      ballGlowFade: 'rgba(15, 56, 15, 0)',
+      trailInner: 'rgba(48, 98, 48, 0.85)',
+      trailMid: 'rgba(48, 98, 48, 0.4)',
+      trailFade: 'rgba(139, 172, 15, 0)',
+      digitFill: '#0f380f',
+      digitStrokeOuter: 'rgba(139, 172, 15, 0.5)',
+      digitStrokeMid: 'rgba(48, 98, 48, 0.45)',
+      digitStrokeInner: '#9bbc0f',
+      serveText: '#0f380f',
+      calloutStroke: 'rgba(155, 188, 15, 0.92)',
+      particles: ['#0f380f', '#306230', '#306230', '#ea580c', '#dc2626'],
+    },
+    fireice: {
+      id: 'fireice',
+      name: 'Fuego vs. Hielo',
+      arenaTitle: 'Fuego vs. Hielo',
+      themeColor: '#13090c',
+      unlockHint: 'Ganá la Ronda 3 (Final) del Torneo',
+      styleDesc: 'Mitad izquierda volcánica y mitad derecha glacial',
+      pixelated: false,
+      previewBg: 'linear-gradient(90deg, #431407 0%, #7c2d12 47%, #0c4a6e 53%, #082f49 100%)',
+      playerColor: '#f97316',
+      aiColor: '#38bdf8',
+      ballColor: '#fffbeb',
+      ballGlowInner: '#fef3c7',
+      ballGlowMid: 'rgba(251, 146, 60, 0.52)',
+      ballGlowOuter: 'rgba(56, 189, 248, 0.24)',
+      ballGlowFade: 'rgba(56, 189, 248, 0)',
+      trailInner: 'rgba(254, 215, 170, 0.95)',
+      trailMid: 'rgba(56, 189, 248, 0.45)',
+      trailFade: 'rgba(56, 189, 248, 0)',
+      digitFill: '#fdba74',
+      digitStrokeOuter: 'rgba(249, 115, 22, 0.2)',
+      digitStrokeMid: 'rgba(56, 189, 248, 0.35)',
+      digitStrokeInner: 'rgba(255, 251, 235, 0.82)',
+      serveText: 'rgba(241, 245, 249, 0.8)',
+      calloutStroke: 'rgba(15, 7, 10, 0.9)',
+      particles: ['#fb923c', '#38bdf8', '#fde047', '#fb923c', '#ef4444'],
+    },
+    cyber2099: {
+      id: 'cyber2099',
+      name: 'Cyberpunk 2099',
+      arenaTitle: 'Cyberpunk 2099',
+      themeColor: '#100720',
+      unlockHint: 'Ganá el Torneo completo (Ronda 4)',
+      styleDesc: 'Violeta nocturno, amarillo eléctrico, cian y grilla geométrica',
+      pixelated: false,
+      previewBg: 'linear-gradient(90deg, #1b0b38 0%, #2e1065 50%, #0f172a 100%)',
+      playerColor: '#facc15',
+      aiColor: '#06b6d4',
+      ballColor: '#fef9c3',
+      ballGlowInner: '#fef08a',
+      ballGlowMid: 'rgba(250, 204, 21, 0.56)',
+      ballGlowOuter: 'rgba(6, 182, 212, 0.25)',
+      ballGlowFade: 'rgba(6, 182, 212, 0)',
+      trailInner: 'rgba(254, 240, 138, 0.96)',
+      trailMid: 'rgba(6, 182, 212, 0.48)',
+      trailFade: 'rgba(232, 121, 249, 0)',
+      digitFill: '#facc15',
+      digitStrokeOuter: 'rgba(232, 121, 249, 0.22)',
+      digitStrokeMid: 'rgba(6, 182, 212, 0.38)',
+      digitStrokeInner: 'rgba(254, 249, 195, 0.85)',
+      serveText: 'rgba(254, 240, 138, 0.82)',
+      calloutStroke: 'rgba(16, 7, 32, 0.92)',
+      particles: ['#facc15', '#06b6d4', '#e879f9', '#fb923c', '#ef4444'],
+    },
+  };
+
+  // ==========================================================
+  //  Torneo de 4 Rondas con escalado lógico de IA
+  // ==========================================================
+  const TOURNAMENT_ROUNDS = [
+    {
+      index: 0,
+      stageName: 'CUARTOS DE FINAL',
+      shortName: 'Cuartos',
+      skin: 'neon',
+      rivalName: 'Centinela Neón',
+      aiStyle: 'IA Inicial · Velocidad moderada y margen amplio',
+      unlockSkin: null,
+      ai: { maxSpeed: 310, accel: 1900, reaction: 0.32, error: 74, edgeAim: 0.0, wallAnticipation: 0.25, mistakeChance: 0.11 },
+    },
+    {
+      index: 1,
+      stageName: 'SEMIFINAL',
+      shortName: 'Semifinal',
+      skin: 'retro89',
+      rivalName: 'Táctico 89',
+      aiStyle: 'IA Táctica · Más veloz y busca ángulos con los bordes',
+      unlockSkin: 'retro89',
+      ai: { maxSpeed: 425, accel: 2900, reaction: 0.20, error: 42, edgeAim: 0.55, wallAnticipation: 0.55, mistakeChance: 0.08 },
+    },
+    {
+      index: 2,
+      stageName: 'FINAL',
+      shortName: 'Final',
+      skin: 'fireice',
+      rivalName: 'Titán Térmico',
+      aiStyle: 'IA Agresiva · Reacción rápida y anticipa rebotes en pared',
+      unlockSkin: 'fireice',
+      ai: { maxSpeed: 530, accel: 4000, reaction: 0.12, error: 24, edgeAim: 0.72, wallAnticipation: 0.92, mistakeChance: 0.06 },
+    },
+    {
+      index: 3,
+      stageName: 'GRAN CAMPEÓN',
+      shortName: 'Campeón',
+      skin: 'cyber2099',
+      rivalName: 'Maestro 2099',
+      aiStyle: 'IA Maestra · Reflejos altos y lectura fina con margen humano',
+      unlockSkin: 'cyber2099',
+      ai: { maxSpeed: 620, accel: 4800, reaction: 0.08, error: 18, edgeAim: 0.85, wallAnticipation: 1.0, mistakeChance: 0.07 },
+    },
+  ];
+
   const DIFFICULTY = {
-    easy:   { label: 'FÁCIL',   maxSpeed: 300, accel: 1800, reaction: 0.34, error: 80 },
-    normal: { label: 'NORMAL',  maxSpeed: 430, accel: 2800, reaction: 0.20, error: 46 },
-    hard:   { label: 'DIFÍCIL', maxSpeed: 570, accel: 4200, reaction: 0.10, error: 24 },
+    easy:   { label: 'FÁCIL',   maxSpeed: 300, accel: 1800, reaction: 0.34, error: 80, edgeAim: 0.0, wallAnticipation: 0.3, mistakeChance: 0.10 },
+    normal: { label: 'NORMAL',  maxSpeed: 430, accel: 2800, reaction: 0.20, error: 46, edgeAim: 0.35, wallAnticipation: 0.75, mistakeChance: 0.08 },
+    hard:   { label: 'DIFÍCIL', maxSpeed: 570, accel: 4200, reaction: 0.10, error: 24, edgeAim: 0.70, wallAnticipation: 1.0, mistakeChance: 0.05 },
   };
 
   // ==========================================================
@@ -105,6 +261,7 @@
   // ==========================================================
   const clamp = (v, min, max) => (v < min ? min : v > max ? max : v);
   const rand = (min, max) => min + Math.random() * (max - min);
+  const midiToFreq = (midi) => 440 * Math.pow(2, (midi - 69) / 12);
 
   function drawRoundedRectPath(targetCtx, x, y, w, h, r) {
     targetCtx.beginPath();
@@ -126,7 +283,7 @@
   }
 
   // ==========================================================
-  //  Sprites neón pre-renderizados (cero shadowBlur en runtime)
+  //  Sprites pre-renderizados por Skin (cero shadowBlur en runtime)
   // ==========================================================
   const BG_PAD = 16;
   const PADDLE_PAD = 18;
@@ -139,14 +296,226 @@
   const COUNTDOWN_SPRITE_SIZE = 200;
   const COUNTDOWN_SPRITE_HALF = COUNTDOWN_SPRITE_SIZE / 2;
 
-  function buildBackgroundSprite() {
+  function buildBackgroundSprite(skinId) {
     const { canvas: c, ctx: g } = createOffscreen(W + BG_PAD * 2, H + BG_PAD * 2);
     g.translate(BG_PAD, BG_PAD);
 
-    g.fillStyle = COLORS.bg;
+    if (skinId === 'retro89') {
+      // Fondo monocromo LCD verde oliva con matriz de píxeles
+      g.fillStyle = '#9bbc0f';
+      g.fillRect(-BG_PAD, -BG_PAD, W + BG_PAD * 2, H + BG_PAD * 2);
+
+      // Rejilla LCD sutil estilo pantalla portátil clásica
+      g.strokeStyle = 'rgba(139, 172, 15, 0.55)';
+      g.lineWidth = 1;
+      g.beginPath();
+      for (let x = 0; x <= W; x += 20) { g.moveTo(x + 0.5, 0); g.lineTo(x + 0.5, H); }
+      for (let y = 0; y <= H; y += 20) { g.moveTo(0, y + 0.5); g.lineTo(W, y + 0.5); }
+      g.stroke();
+
+      // Marco interior pixelado
+      g.fillStyle = '#8bac0f';
+      g.fillRect(0, 0, W, 10);
+      g.fillRect(0, H - 10, W, 10);
+      g.fillStyle = '#306230';
+      g.fillRect(0, 0, W, 4);
+      g.fillRect(0, H - 4, W, 4);
+
+      // Emblema cuadrado pixelado en el centro
+      g.strokeStyle = '#8bac0f';
+      g.lineWidth = 6;
+      g.strokeRect(W / 2 - 64, H / 2 - 64, 128, 128);
+      g.strokeStyle = '#306230';
+      g.lineWidth = 3;
+      g.strokeRect(W / 2 - 52, H / 2 - 52, 104, 104);
+
+      // Línea central de bloques pixelados
+      g.fillStyle = '#306230';
+      for (let y = 14; y < H - 14; y += 28) {
+        g.fillRect(W / 2 - 4, y, 8, 16);
+      }
+
+      // Puntos decorativos en las esquinas
+      g.fillStyle = '#0f380f';
+      const corners = [[12, 12], [W - 20, 12], [12, H - 20], [W - 20, H - 20]];
+      for (let i = 0; i < corners.length; i++) {
+        g.fillRect(corners[i][0], corners[i][1], 8, 8);
+      }
+      return c;
+    }
+
+    if (skinId === 'fireice') {
+      // Mitad izquierda volcánica (fuego)
+      const fireGrad = g.createLinearGradient(0, 0, W / 2, H);
+      fireGrad.addColorStop(0, '#230906');
+      fireGrad.addColorStop(0.55, '#190809');
+      fireGrad.addColorStop(1, '#14080e');
+      g.fillStyle = fireGrad;
+      g.fillRect(-BG_PAD, -BG_PAD, W / 2 + BG_PAD, H + BG_PAD * 2);
+
+      // Mitad derecha glacial (hielo)
+      const iceGrad = g.createLinearGradient(W / 2, 0, W, H);
+      iceGrad.addColorStop(0, '#0b1424');
+      iceGrad.addColorStop(0.55, '#071c30');
+      iceGrad.addColorStop(1, '#062238');
+      g.fillStyle = iceGrad;
+      g.fillRect(W / 2, -BG_PAD, W / 2 + BG_PAD, H + BG_PAD * 2);
+
+      // Resplandor ambiental en bordes laterales
+      const leftGlow = g.createRadialGradient(0, H / 2, 20, 0, H / 2, 340);
+      leftGlow.addColorStop(0, 'rgba(249, 115, 22, 0.16)');
+      leftGlow.addColorStop(1, 'rgba(249, 115, 22, 0)');
+      g.fillStyle = leftGlow;
+      g.fillRect(0, 0, W / 2, H);
+
+      const rightGlow = g.createRadialGradient(W, H / 2, 20, W, H / 2, 340);
+      rightGlow.addColorStop(0, 'rgba(56, 189, 248, 0.16)');
+      rightGlow.addColorStop(1, 'rgba(56, 189, 248, 0)');
+      g.fillStyle = rightGlow;
+      g.fillRect(W / 2, 0, W / 2, H);
+
+      // Trama volcánica izquierda (diagonales cálidas)
+      g.strokeStyle = 'rgba(251, 146, 60, 0.065)';
+      g.lineWidth = 1;
+      g.beginPath();
+      for (let i = -H; i < W / 2; i += 44) {
+        g.moveTo(Math.max(0, i), Math.max(0, -i));
+        const endX = Math.min(W / 2, i + H);
+        const endY = endX - i;
+        g.lineTo(endX, endY);
+      }
+      g.stroke();
+
+      // Trama cristalina derecha (diagonales glaciales opuestas)
+      g.strokeStyle = 'rgba(56, 189, 248, 0.07)';
+      g.beginPath();
+      for (let i = W / 2; i < W + H; i += 44) {
+        const startX = Math.min(W, i);
+        const startY = Math.max(0, i - W);
+        const endX = Math.max(W / 2, i - H);
+        const endY = startY + (startX - endX);
+        g.moveTo(startX, startY);
+        g.lineTo(endX, endY);
+      }
+      g.stroke();
+
+      // Semicírculos enfrentados en el centro
+      g.lineWidth = 3;
+      g.strokeStyle = 'rgba(249, 115, 22, 0.42)';
+      g.beginPath();
+      g.arc(W / 2, H / 2, 72, Math.PI * 0.5, Math.PI * 1.5);
+      g.stroke();
+
+      g.strokeStyle = 'rgba(56, 189, 248, 0.42)';
+      g.beginPath();
+      g.arc(W / 2, H / 2, 72, -Math.PI * 0.5, Math.PI * 0.5);
+      g.stroke();
+
+      // Grieta central Fuego/Hielo
+      for (let y = 8; y < H; y += 34) {
+        g.fillStyle = 'rgba(249, 115, 22, 0.42)';
+        g.fillRect(W / 2 - 3, y, 3, 18);
+        g.fillStyle = 'rgba(56, 189, 248, 0.42)';
+        g.fillRect(W / 2, y, 3, 18);
+      }
+
+      // Bordes superior e inferior divididos
+      g.fillStyle = 'rgba(249, 115, 22, 0.45)';
+      g.fillRect(0, 0, W / 2, 3);
+      g.fillRect(0, H - 3, W / 2, 3);
+      g.fillStyle = 'rgba(56, 189, 248, 0.45)';
+      g.fillRect(W / 2, 0, W / 2, 3);
+      g.fillRect(W / 2, H - 3, W / 2, 3);
+      return c;
+    }
+
+    if (skinId === 'cyber2099') {
+      // Violeta nocturno profundo
+      const bgGrad = g.createLinearGradient(0, 0, 0, H);
+      bgGrad.addColorStop(0, '#14082a');
+      bgGrad.addColorStop(0.5, '#0e061d');
+      bgGrad.addColorStop(1, '#170a2e');
+      g.fillStyle = bgGrad;
+      g.fillRect(-BG_PAD, -BG_PAD, W + BG_PAD * 2, H + BG_PAD * 2);
+
+      // Grilla geométrica ortogonal + rombos sutiles
+      g.strokeStyle = 'rgba(6, 182, 212, 0.065)';
+      g.lineWidth = 1;
+      g.beginPath();
+      for (let x = 0; x <= W; x += 48) { g.moveTo(x + 0.5, 0); g.lineTo(x + 0.5, H); }
+      for (let y = 0; y <= H; y += 48) { g.moveTo(0, y + 0.5); g.lineTo(W, y + 0.5); }
+      g.stroke();
+
+      g.strokeStyle = 'rgba(250, 204, 21, 0.04)';
+      g.beginPath();
+      for (let x = 48; x < W; x += 96) {
+        for (let y = 48; y < H; y += 96) {
+          g.moveTo(x, y - 16);
+          g.lineTo(x + 16, y);
+          g.lineTo(x, y + 16);
+          g.lineTo(x - 16, y);
+          g.closePath();
+        }
+      }
+      g.stroke();
+
+      // Emblema central romboidal cyberpunk
+      g.strokeStyle = 'rgba(250, 204, 21, 0.24)';
+      g.lineWidth = 2;
+      g.beginPath();
+      g.moveTo(W / 2, H / 2 - 78);
+      g.lineTo(W / 2 + 78, H / 2);
+      g.lineTo(W / 2, H / 2 + 78);
+      g.lineTo(W / 2 - 78, H / 2);
+      g.closePath();
+      g.stroke();
+
+      g.strokeStyle = 'rgba(6, 182, 212, 0.28)';
+      g.beginPath();
+      g.moveTo(W / 2, H / 2 - 52);
+      g.lineTo(W / 2 + 52, H / 2);
+      g.lineTo(W / 2, H / 2 + 52);
+      g.lineTo(W / 2 - 52, H / 2);
+      g.closePath();
+      g.stroke();
+
+      // Línea central segmentada eléctrico-cian
+      g.save();
+      g.strokeStyle = 'rgba(250, 204, 21, 0.34)';
+      g.lineWidth = 3;
+      g.setLineDash([16, 14]);
+      g.beginPath();
+      g.moveTo(W / 2, 0);
+      g.lineTo(W / 2, H);
+      g.stroke();
+      g.restore();
+
+      // Escuadras HUD geométricas en las 4 esquinas
+      g.strokeStyle = 'rgba(250, 204, 21, 0.42)';
+      g.lineWidth = 2.5;
+      g.beginPath();
+      g.moveTo(14, 42); g.lineTo(14, 14); g.lineTo(42, 14);
+      g.moveTo(14, H - 42); g.lineTo(14, H - 14); g.lineTo(42, H - 14);
+      g.stroke();
+
+      g.strokeStyle = 'rgba(6, 182, 212, 0.42)';
+      g.beginPath();
+      g.moveTo(W - 42, 14); g.lineTo(W - 14, 14); g.lineTo(W - 14, 42);
+      g.moveTo(W - 42, H - 14); g.lineTo(W - 14, H - 14); g.lineTo(W - 14, H - 42);
+      g.stroke();
+
+      // Bordes superior amarillo eléctrico e inferior cian neón
+      g.fillStyle = 'rgba(250, 204, 21, 0.45)';
+      g.fillRect(0, 0, W, 3);
+      g.fillStyle = 'rgba(6, 182, 212, 0.45)';
+      g.fillRect(0, H - 3, W, 3);
+      return c;
+    }
+
+    // Por defecto: Neón Clásico
+    g.fillStyle = '#0b0f19';
     g.fillRect(-BG_PAD, -BG_PAD, W + BG_PAD * 2, H + BG_PAD * 2);
 
-    // Rejilla sutil pre-calculada una sola vez
     g.strokeStyle = 'rgba(34, 211, 238, 0.04)';
     g.lineWidth = 1;
     g.beginPath();
@@ -154,9 +523,8 @@
     for (let y = 0; y <= H; y += 40) { g.moveTo(0, y + 0.5); g.lineTo(W, y + 0.5); }
     g.stroke();
 
-    // Línea central discontinua
     g.save();
-    g.strokeStyle = COLORS.line;
+    g.strokeStyle = 'rgba(148, 163, 184, 0.22)';
     g.lineWidth = 4;
     g.setLineDash([18, 16]);
     g.lineDashOffset = -6;
@@ -166,14 +534,12 @@
     g.stroke();
     g.restore();
 
-    // Círculo central concéntrico
     g.strokeStyle = 'rgba(148, 163, 184, 0.09)';
     g.lineWidth = 2;
     g.beginPath();
     g.arc(W / 2, H / 2, 70, 0, Math.PI * 2);
     g.stroke();
 
-    // Borde sutil superior e inferior
     g.fillStyle = 'rgba(34, 211, 238, 0.16)';
     g.fillRect(0, 0, W, 2);
     g.fillStyle = 'rgba(244, 114, 182, 0.16)';
@@ -182,10 +548,37 @@
     return c;
   }
 
-  function buildPaddleSprite(color, isFlash, coreColor) {
+  function buildPaddleSprite(color, isFlash, coreColor, pixelated, isRightRetro) {
     const { canvas: c, ctx: g } = createOffscreen(PADDLE_SPRITE_W, PADDLE_SPRITE_H);
     const x = PADDLE_PAD;
     const y = PADDLE_PAD;
+
+    if (pixelated) {
+      if (!isFlash) {
+        // Sombra pixelada dura (estilo portátil 8-bit)
+        g.fillStyle = '#8bac0f';
+        g.fillRect(x + 3, y + 3, PADDLE_W, PADDLE_H);
+        g.fillStyle = '#0f380f';
+        g.fillRect(x, y, PADDLE_W, PADDLE_H);
+        g.fillStyle = color;
+        g.fillRect(x + 2, y + 2, PADDLE_W - 4, PADDLE_H - 4);
+        if (isRightRetro) {
+          g.fillStyle = '#8bac0f';
+          for (let py = y + 8; py < y + PADDLE_H - 8; py += 12) {
+            g.fillRect(x + 4, py, PADDLE_W - 8, 4);
+          }
+        } else {
+          g.fillStyle = '#306230';
+          g.fillRect(x + 4, y + 6, PADDLE_W - 8, PADDLE_H - 12);
+        }
+      } else {
+        g.fillStyle = coreColor || '#9bbc0f';
+        g.globalAlpha = 0.85;
+        g.fillRect(x - 2, y - 2, PADDLE_W + 4, PADDLE_H + 4);
+      }
+      g.globalAlpha = 1;
+      return c;
+    }
 
     const layers = isFlash
       ? [
@@ -213,7 +606,7 @@
       drawRoundedRectPath(g, x, y, PADDLE_W, PADDLE_H, 6);
       g.fill();
 
-      g.fillStyle = 'rgba(255, 255, 255, 0.34)';
+      g.fillStyle = 'rgba(255, 255, 255, 0.36)';
       drawRoundedRectPath(g, x + 3.5, y + 6, PADDLE_W - 7, PADDLE_H - 12, 3);
       g.fill();
     } else {
@@ -227,23 +620,33 @@
     return c;
   }
 
-  function buildBallSprite() {
+  function buildBallSprite(skin) {
     const { canvas: c, ctx: g } = createOffscreen(BALL_SPRITE_SIZE, BALL_SPRITE_SIZE);
     const cx = BALL_SPRITE_HALF;
     const cy = BALL_SPRITE_HALF;
 
+    if (skin.pixelated) {
+      g.fillStyle = '#306230';
+      g.fillRect(cx - BALL_R - 2, cy - BALL_R - 2, (BALL_R + 2) * 2, (BALL_R + 2) * 2);
+      g.fillStyle = '#0f380f';
+      g.fillRect(cx - BALL_R, cy - BALL_R, BALL_R * 2, BALL_R * 2);
+      g.fillStyle = '#8bac0f';
+      g.fillRect(cx - BALL_R + 3, cy - BALL_R + 3, 4, 4);
+      return c;
+    }
+
     const grad = g.createRadialGradient(cx, cy, 2, cx, cy, BALL_SPRITE_HALF - 2);
     grad.addColorStop(0.0, '#ffffff');
-    grad.addColorStop(0.28, '#e0f2fe');
-    grad.addColorStop(0.45, 'rgba(165, 243, 252, 0.58)');
-    grad.addColorStop(0.72, 'rgba(34, 211, 238, 0.18)');
-    grad.addColorStop(1.0, 'rgba(34, 211, 238, 0)');
+    grad.addColorStop(0.28, skin.ballGlowInner);
+    grad.addColorStop(0.45, skin.ballGlowMid);
+    grad.addColorStop(0.72, skin.ballGlowOuter);
+    grad.addColorStop(1.0, skin.ballGlowFade);
     g.fillStyle = grad;
     g.beginPath();
     g.arc(cx, cy, BALL_SPRITE_HALF - 2, 0, Math.PI * 2);
     g.fill();
 
-    g.fillStyle = COLORS.ball;
+    g.fillStyle = skin.ballColor;
     g.beginPath();
     g.arc(cx, cy, BALL_R, 0, Math.PI * 2);
     g.fill();
@@ -251,12 +654,25 @@
     return c;
   }
 
-  function buildSmashBallSprite() {
+  function buildSmashBallSprite(pixelated) {
     const { canvas: c, ctx: g } = createOffscreen(BALL_SMASH_SPRITE_SIZE, BALL_SMASH_SPRITE_SIZE);
     const cx = BALL_SMASH_SPRITE_HALF;
     const cy = BALL_SMASH_SPRITE_HALF;
 
-    // Halo rojo/naranja intenso para tiro cargado (Smash)
+    if (pixelated) {
+      g.fillStyle = 'rgba(239, 68, 68, 0.35)';
+      g.fillRect(cx - 15, cy - 15, 30, 30);
+      g.fillStyle = '#0f380f';
+      g.fillRect(cx - 11, cy - 11, 22, 22);
+      g.fillStyle = '#ef4444';
+      g.fillRect(cx - 9, cy - 9, 18, 18);
+      g.fillStyle = '#fb923c';
+      g.fillRect(cx - 6, cy - 6, 12, 12);
+      g.fillStyle = '#fef08a';
+      g.fillRect(cx - 3, cy - 3, 6, 6);
+      return c;
+    }
+
     const grad = g.createRadialGradient(cx, cy, 2, cx, cy, BALL_SMASH_SPRITE_HALF - 2);
     grad.addColorStop(0.0, '#fff7ed');
     grad.addColorStop(0.24, '#fb923c');
@@ -268,7 +684,6 @@
     g.arc(cx, cy, BALL_SMASH_SPRITE_HALF - 2, 0, Math.PI * 2);
     g.fill();
 
-    // Núcleo rojo/naranja incandescente
     const coreGrad = g.createRadialGradient(cx, cy, 1, cx, cy, BALL_R + 1.5);
     coreGrad.addColorStop(0.0, '#fef08a');
     coreGrad.addColorStop(0.55, '#fb923c');
@@ -281,10 +696,18 @@
     return c;
   }
 
-  function buildTrailDotSprite(isSmash) {
+  function buildTrailDotSprite(skin, isSmash) {
     const size = isSmash ? 24 : 20;
     const half = size / 2;
     const { canvas: c, ctx: g } = createOffscreen(size, size);
+
+    if (skin.pixelated) {
+      g.fillStyle = isSmash ? '#ef4444' : '#306230';
+      const box = isSmash ? 14 : 11;
+      g.fillRect(half - box / 2, half - box / 2, box, box);
+      return c;
+    }
+
     const grad = g.createRadialGradient(half, half, 1, half, half, half);
     if (isSmash) {
       grad.addColorStop(0.0, 'rgba(253, 186, 116, 0.96)');
@@ -292,9 +715,9 @@
       grad.addColorStop(0.75, 'rgba(239, 68, 68, 0.35)');
       grad.addColorStop(1.0, 'rgba(239, 68, 68, 0)');
     } else {
-      grad.addColorStop(0.0, 'rgba(165, 243, 252, 0.95)');
-      grad.addColorStop(0.55, 'rgba(34, 211, 238, 0.45)');
-      grad.addColorStop(1.0, 'rgba(34, 211, 238, 0)');
+      grad.addColorStop(0.0, skin.trailInner);
+      grad.addColorStop(0.55, skin.trailMid);
+      grad.addColorStop(1.0, skin.trailFade);
     }
     g.fillStyle = grad;
     g.beginPath();
@@ -303,52 +726,68 @@
     return c;
   }
 
-  function buildCountdownDigitSprite(digit) {
+  function buildCountdownDigitSprite(digit, skin) {
     const { canvas: c, ctx: g } = createOffscreen(COUNTDOWN_SPRITE_SIZE, COUNTDOWN_SPRITE_SIZE);
     const cx = COUNTDOWN_SPRITE_HALF;
     const cy = COUNTDOWN_SPRITE_HALF;
-    g.font = '900 132px "Segoe UI", system-ui, Roboto, sans-serif';
+    g.font = skin.pixelated
+      ? '900 132px "Courier New", ui-monospace, monospace'
+      : '900 132px "Segoe UI", system-ui, Roboto, sans-serif';
     g.textAlign = 'center';
     g.textBaseline = 'middle';
     g.lineJoin = 'round';
 
-    g.strokeStyle = 'rgba(167, 139, 250, 0.16)';
+    g.strokeStyle = skin.digitStrokeOuter;
     g.lineWidth = 20;
     g.strokeText(digit, cx, cy);
 
-    g.strokeStyle = 'rgba(167, 139, 250, 0.34)';
+    g.strokeStyle = skin.digitStrokeMid;
     g.lineWidth = 9;
     g.strokeText(digit, cx, cy);
 
-    g.fillStyle = COLORS.violet;
+    g.fillStyle = skin.digitFill;
     g.fillText(digit, cx, cy);
 
-    g.strokeStyle = 'rgba(237, 233, 254, 0.75)';
+    g.strokeStyle = skin.digitStrokeInner;
     g.lineWidth = 2;
     g.strokeText(digit, cx, cy);
 
     return c;
   }
 
-  const Sprites = {
-    bg: buildBackgroundSprite(),
-    player: buildPaddleSprite(COLORS.player, false),
-    playerFlash: buildPaddleSprite(COLORS.player, true),
-    ai: buildPaddleSprite(COLORS.ai, false),
-    aiFlash: buildPaddleSprite(COLORS.ai, true),
-    paddleSmash: buildPaddleSprite(COLORS.smashRed, true, '#fed7aa'),
-    ball: buildBallSprite(),
-    ballSmash: buildSmashBallSprite(),
-    trailDot: buildTrailDotSprite(false),
-    trailDotSmash: buildTrailDotSprite(true),
-    digits: {
-      1: buildCountdownDigitSprite('1'),
-      2: buildCountdownDigitSprite('2'),
-      3: buildCountdownDigitSprite('3'),
-    },
-  };
+  const skinSpriteCache = {};
 
-  // Tablas pre-calculadas para la estela (cero cálculos/strings por frame)
+  function getSkinSprites(skinId) {
+    const id = SKINS[skinId] ? skinId : 'neon';
+    if (skinSpriteCache[id]) return skinSpriteCache[id];
+
+    const skin = SKINS[id];
+    const bundle = {
+      bg: buildBackgroundSprite(id),
+      player: buildPaddleSprite(skin.playerColor, false, null, skin.pixelated, false),
+      playerFlash: buildPaddleSprite(skin.playerColor, true, skin.pixelated ? '#9bbc0f' : '#ffffff', skin.pixelated, false),
+      ai: buildPaddleSprite(skin.aiColor, false, null, skin.pixelated, true),
+      aiFlash: buildPaddleSprite(skin.aiColor, true, skin.pixelated ? '#9bbc0f' : '#ffffff', skin.pixelated, true),
+      paddleSmash: buildPaddleSprite('#ef4444', true, '#fed7aa', skin.pixelated, false),
+      ball: buildBallSprite(skin),
+      ballSmash: buildSmashBallSprite(skin.pixelated),
+      trailDot: buildTrailDotSprite(skin, false),
+      trailDotSmash: buildTrailDotSprite(skin, true),
+      digits: {
+        1: buildCountdownDigitSprite('1', skin),
+        2: buildCountdownDigitSprite('2', skin),
+        3: buildCountdownDigitSprite('3', skin),
+      },
+    };
+    skinSpriteCache[id] = bundle;
+    return bundle;
+  }
+
+  let activeSkinId = 'neon';
+  let activeSkin = SKINS.neon;
+  let activeSprites = getSkinSprites('neon');
+
+  // Tablas pre-calculadas para la estela
   const TRAIL_ALPHAS = new Float32Array(TRAIL_LENGTH);
   const TRAIL_SIZES = new Float32Array(TRAIL_LENGTH);
   const TRAIL_SMASH_SIZES = new Float32Array(TRAIL_LENGTH);
@@ -360,65 +799,211 @@
   }
 
   // ==========================================================
-  //  Audio procedural (Web Audio API compatible con WebView Android)
+  //  Audio procedural: SFX + Música por Cancha (Web Audio API)
+  //  - Buses independientes para SFX y Música
+  //  - Desconexión automática al finalizar cada nota (cero fugas)
   // ==========================================================
-  const Sound = {
+  const MUSIC_TRACKS = {
+    // Arpegio synthwave melódico de tempo medio (Am -> F -> C -> G)
+    neon: {
+      bpm: 116,
+      leadType: 'sawtooth',
+      bassType: 'triangle',
+      leadFilterHz: 2100,
+      bassFilterHz: 460,
+      leadVol: 0.11,
+      bassVol: 0.22,
+      leadGate: 0.72,
+      bassGate: 0.78,
+      lead: [
+        69, 72, 76, 79, 76, 72, 76, 72,
+        65, 69, 72, 77, 72, 69, 72, 69,
+        67, 72, 76, 79, 76, 72, 76, 72,
+        67, 71, 74, 79, 74, 71, 74, 76,
+      ],
+      bass: [
+        45, 0, 45, 0, 45, 0, 45, 48,
+        41, 0, 41, 0, 41, 0, 41, 45,
+        48, 0, 48, 0, 48, 0, 48, 43,
+        43, 0, 43, 0, 43, 0, 47, 43,
+      ],
+    },
+    // Chiptune clásico de consola portátil 8-bits (cuadrada + triangular)
+    retro89: {
+      bpm: 134,
+      leadType: 'square',
+      bassType: 'triangle',
+      leadFilterHz: 3400,
+      bassFilterHz: 900,
+      leadVol: 0.095,
+      bassVol: 0.24,
+      leadGate: 0.56,
+      bassGate: 0.68,
+      lead: [
+        72, 0, 76, 79, 0, 76, 72, 74,
+        76, 0, 79, 84, 0, 79, 76, 0,
+        77, 0, 81, 79, 0, 76, 72, 74,
+        76, 74, 72, 0, 74, 0, 79, 0,
+      ],
+      bass: [
+        48, 0, 55, 0, 48, 0, 55, 0,
+        45, 0, 52, 0, 45, 0, 52, 0,
+        41, 0, 48, 0, 43, 0, 50, 0,
+        48, 0, 43, 0, 48, 43, 48, 0,
+      ],
+    },
+    // Ritmo tenso y enérgico con pulsos graves marcados (Dm -> Bb -> C -> A)
+    fireice: {
+      bpm: 128,
+      leadType: 'square',
+      bassType: 'sawtooth',
+      leadFilterHz: 1850,
+      bassFilterHz: 340,
+      leadVol: 0.09,
+      bassVol: 0.25,
+      leadGate: 0.52,
+      bassGate: 0.62,
+      lead: [
+        62, 0, 69, 0, 70, 69, 65, 0,
+        62, 0, 74, 0, 72, 0, 69, 0,
+        70, 0, 69, 65, 67, 0, 72, 0,
+        69, 67, 65, 64, 69, 0, 73, 0,
+      ],
+      bass: [
+        38, 38, 0, 38, 0, 38, 50, 0,
+        38, 38, 0, 38, 0, 41, 45, 0,
+        46, 46, 0, 46, 48, 48, 0, 48,
+        45, 45, 0, 45, 45, 0, 45, 0,
+      ],
+    },
+    // Darksynth electrónico rápido y oscuro (Mi Frigio / Em)
+    cyber2099: {
+      bpm: 142,
+      leadType: 'sawtooth',
+      bassType: 'sawtooth',
+      leadFilterHz: 2450,
+      bassFilterHz: 390,
+      leadVol: 0.10,
+      bassVol: 0.24,
+      leadGate: 0.58,
+      bassGate: 0.66,
+      lead: [
+        64, 67, 71, 64, 72, 71, 67, 65,
+        64, 67, 76, 75, 71, 67, 65, 64,
+        60, 64, 67, 72, 71, 67, 64, 60,
+        62, 65, 69, 71, 74, 71, 69, 65,
+      ],
+      bass: [
+        40, 40, 52, 40, 40, 40, 52, 41,
+        40, 40, 52, 40, 43, 40, 41, 40,
+        36, 36, 48, 36, 36, 36, 48, 36,
+        38, 38, 50, 38, 43, 41, 40, 39,
+      ],
+    },
+  };
+
+  function readInitialSfxMuted() {
+    const saved = localStorage.getItem(STORAGE_KEYS.sfxMuted);
+    if (saved !== null) return saved === '1';
+    return localStorage.getItem(STORAGE_KEYS.legacyMuted) === '1';
+  }
+
+  function readInitialMusicMuted() {
+    const saved = localStorage.getItem(STORAGE_KEYS.musicMuted);
+    if (saved !== null) return saved === '1';
+    return false;
+  }
+
+  const AudioBus = {
     ctx: null,
-    master: null,
-    muted: localStorage.getItem(STORAGE_KEYS.muted) === '1',
-    volume: 0.5,
+    sfxMaster: null,
+    musicMaster: null,
+    leadFilter: null,
+    bassFilter: null,
+    sfxVolume: 0.5,
+    musicVolume: 0.34,
 
     init() {
       if (!this.ctx) {
         const AC = window.AudioContext || window.webkitAudioContext;
-        if (!AC) return;
+        if (!AC) return false;
         this.ctx = new AC();
-        this.master = this.ctx.createGain();
-        this.master.gain.value = this.muted ? 0 : this.volume;
-        this.master.connect(this.ctx.destination);
+
+        this.sfxMaster = this.ctx.createGain();
+        this.sfxMaster.gain.value = Sound.muted ? 0 : this.sfxVolume;
+        this.sfxMaster.connect(this.ctx.destination);
+
+        this.musicMaster = this.ctx.createGain();
+        this.musicMaster.gain.value = Music.muted ? 0 : this.musicVolume;
+        this.musicMaster.connect(this.ctx.destination);
+
+        // Filtros compartidos para música (cero creación de filtros por nota)
+        this.leadFilter = this.ctx.createBiquadFilter();
+        this.leadFilter.type = 'lowpass';
+        this.leadFilter.frequency.value = 2100;
+        this.leadFilter.connect(this.musicMaster);
+
+        this.bassFilter = this.ctx.createBiquadFilter();
+        this.bassFilter.type = 'lowpass';
+        this.bassFilter.frequency.value = 460;
+        this.bassFilter.connect(this.musicMaster);
       }
       this.resume();
+      return true;
     },
 
     resume() {
-      const audioCtx = this.ctx;
-      if (audioCtx && audioCtx.state === 'suspended') {
-        audioCtx.resume().catch(() => {});
+      const c = this.ctx;
+      if (c && c.state === 'suspended') {
+        c.resume().catch(() => {});
       }
     },
 
     suspend() {
-      const audioCtx = this.ctx;
-      if (audioCtx && audioCtx.state === 'running') {
-        audioCtx.suspend().catch(() => {});
+      const c = this.ctx;
+      if (c && c.state === 'running') {
+        c.suspend().catch(() => {});
       }
     },
+  };
+
+  const Sound = {
+    muted: readInitialSfxMuted(),
 
     setMuted(muted) {
-      this.muted = muted;
-      localStorage.setItem(STORAGE_KEYS.muted, muted ? '1' : '0');
-      if (this.master && this.ctx) {
-        this.master.gain.setTargetAtTime(muted ? 0 : this.volume, this.ctx.currentTime, 0.015);
+      this.muted = !!muted;
+      localStorage.setItem(STORAGE_KEYS.sfxMuted, this.muted ? '1' : '0');
+      if (AudioBus.sfxMaster && AudioBus.ctx) {
+        AudioBus.sfxMaster.gain.setTargetAtTime(
+          this.muted ? 0 : AudioBus.sfxVolume,
+          AudioBus.ctx.currentTime,
+          0.015
+        );
       }
     },
 
     tone({ freq, to = null, dur = 0.1, type = 'square', vol = 0.25, delay = 0 }) {
-      if (!this.ctx || this.muted || document.hidden) return;
-      if (this.ctx.state === 'suspended') {
-        this.ctx.resume().catch(() => {});
+      if (!AudioBus.ctx || !AudioBus.sfxMaster || this.muted || document.hidden) return;
+      if (AudioBus.ctx.state === 'suspended') {
+        AudioBus.ctx.resume().catch(() => {});
       }
-      const t = this.ctx.currentTime + delay;
-      const osc = this.ctx.createOscillator();
-      const gain = this.ctx.createGain();
+      const t = AudioBus.ctx.currentTime + delay;
+      const osc = AudioBus.ctx.createOscillator();
+      const gain = AudioBus.ctx.createGain();
       osc.type = type;
       osc.frequency.setValueAtTime(freq, t);
       if (to) osc.frequency.exponentialRampToValueAtTime(to, t + dur);
       gain.gain.setValueAtTime(0.0001, t);
       gain.gain.exponentialRampToValueAtTime(vol, t + 0.006);
       gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-      osc.connect(gain).connect(this.master);
+      osc.connect(gain);
+      gain.connect(AudioBus.sfxMaster);
+      osc.onended = () => {
+        osc.disconnect();
+        gain.disconnect();
+      };
       osc.start(t);
-      osc.stop(t + dur + 0.03);
+      osc.stop(t + dur + 0.025);
     },
 
     paddle(speedRatio) {
@@ -437,6 +1022,13 @@
       const notes = [587, 740, 988];
       for (let i = 0; i < notes.length; i++) {
         this.tone({ freq: notes[i], dur: 0.13, type: 'triangle', vol: 0.24, delay: i * 0.07 });
+      }
+    },
+
+    unlock() {
+      const notes = [523, 659, 784, 1047, 1319];
+      for (let i = 0; i < notes.length; i++) {
+        this.tone({ freq: notes[i], dur: 0.18, type: 'triangle', vol: 0.22, delay: i * 0.08 });
       }
     },
 
@@ -474,12 +1066,152 @@
     },
   };
 
+  const Music = {
+    muted: readInitialMusicMuted(),
+    trackId: 'neon',
+    running: false,
+    timerId: 0,
+    step: 0,
+    nextNoteTime: 0,
+    lookaheadMs: 75,
+    scheduleAheadSec: 0.16,
+
+    setMuted(muted) {
+      this.muted = !!muted;
+      localStorage.setItem(STORAGE_KEYS.musicMuted, this.muted ? '1' : '0');
+      if (AudioBus.musicMaster && AudioBus.ctx) {
+        AudioBus.musicMaster.gain.setTargetAtTime(
+          this.muted ? 0 : AudioBus.musicVolume,
+          AudioBus.ctx.currentTime,
+          0.02
+        );
+      }
+      if (this.muted) {
+        this.stop();
+      } else {
+        this.syncPlayback();
+      }
+    },
+
+    setTrack(skinId) {
+      const nextId = MUSIC_TRACKS[skinId] ? skinId : 'neon';
+      if (this.trackId === nextId) return;
+      this.trackId = nextId;
+      this.step = 0;
+      this.applyTrackFilters();
+    },
+
+    applyTrackFilters() {
+      if (!AudioBus.ctx || !AudioBus.leadFilter || !AudioBus.bassFilter) return;
+      const track = MUSIC_TRACKS[this.trackId] || MUSIC_TRACKS.neon;
+      const now = AudioBus.ctx.currentTime;
+      AudioBus.leadFilter.frequency.setTargetAtTime(track.leadFilterHz, now, 0.04);
+      AudioBus.bassFilter.frequency.setTargetAtTime(track.bassFilterHz, now, 0.04);
+    },
+
+    scheduleVoice(midi, time, dur, type, vol, dest) {
+      if (!midi || !AudioBus.ctx) return;
+      const osc = AudioBus.ctx.createOscillator();
+      const gain = AudioBus.ctx.createGain();
+      osc.type = type;
+      osc.frequency.setValueAtTime(midiToFreq(midi), time);
+
+      gain.gain.setValueAtTime(0.0001, time);
+      gain.gain.exponentialRampToValueAtTime(vol, time + 0.008);
+      gain.gain.exponentialRampToValueAtTime(0.0001, time + dur);
+
+      osc.connect(gain);
+      gain.connect(dest);
+      osc.onended = () => {
+        osc.disconnect();
+        gain.disconnect();
+      };
+      osc.start(time);
+      osc.stop(time + dur + 0.02);
+    },
+
+    tick() {
+      if (!this.running || this.muted || document.hidden || !AudioBus.ctx) return;
+      if (AudioBus.ctx.state === 'suspended') return;
+
+      const track = MUSIC_TRACKS[this.trackId] || MUSIC_TRACKS.neon;
+      const stepSec = 60 / track.bpm / 4; // semicorchea
+      const horizon = AudioBus.ctx.currentTime + this.scheduleAheadSec;
+
+      if (this.nextNoteTime < AudioBus.ctx.currentTime - 0.15) {
+        this.nextNoteTime = AudioBus.ctx.currentTime + 0.02;
+      }
+
+      let guard = 0;
+      while (this.nextNoteTime < horizon && guard < 8) {
+        const idx = this.step % track.lead.length;
+        const leadNote = track.lead[idx];
+        const bassNote = track.bass[idx];
+
+        if (leadNote) {
+          this.scheduleVoice(
+            leadNote,
+            this.nextNoteTime,
+            stepSec * track.leadGate,
+            track.leadType,
+            track.leadVol,
+            AudioBus.leadFilter
+          );
+        }
+        if (bassNote) {
+          this.scheduleVoice(
+            bassNote,
+            this.nextNoteTime,
+            stepSec * track.bassGate,
+            track.bassType,
+            track.bassVol,
+            AudioBus.bassFilter
+          );
+        }
+
+        this.nextNoteTime += stepSec;
+        this.step = (this.step + 1) % track.lead.length;
+        guard++;
+      }
+    },
+
+    start() {
+      if (this.running || this.muted || document.hidden) return;
+      if (!AudioBus.init()) return;
+      this.applyTrackFilters();
+      if (AudioBus.musicMaster && AudioBus.ctx) {
+        AudioBus.musicMaster.gain.setTargetAtTime(AudioBus.musicVolume, AudioBus.ctx.currentTime, 0.03);
+      }
+      this.running = true;
+      this.nextNoteTime = AudioBus.ctx.currentTime + 0.03;
+      this.tick();
+      this.timerId = setInterval(() => this.tick(), this.lookaheadMs);
+    },
+
+    stop() {
+      this.running = false;
+      if (this.timerId) {
+        clearInterval(this.timerId);
+        this.timerId = 0;
+      }
+      if (AudioBus.musicMaster && AudioBus.ctx) {
+        AudioBus.musicMaster.gain.setTargetAtTime(0, AudioBus.ctx.currentTime, 0.02);
+      }
+    },
+
+    syncPlayback() {
+      const shouldPlay =
+        !document.hidden &&
+        !this.muted &&
+        (game.state === 'playing' || game.state === 'countdown');
+      if (shouldPlay) this.start();
+      else this.stop();
+    },
+  };
+
   function unlockAudio() {
-    Sound.init();
-    const audioCtx = Sound.ctx;
-    if (audioCtx && audioCtx.state === 'suspended') {
-      audioCtx.resume().catch(() => {});
-    }
+    AudioBus.init();
+    Music.syncPlayback();
   }
 
   window.addEventListener('touchstart', unlockAudio, { passive: true, capture: true });
@@ -492,28 +1224,52 @@
   const stageEl = document.getElementById('stage');
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d', { alpha: false });
+  const themeColorMeta = document.querySelector('meta[name="theme-color"]');
+
   const el = {
     menu: document.getElementById('menu'),
+    quickplay: document.getElementById('quickplay'),
+    skins: document.getElementById('skins'),
+    tournamentScreen: document.getElementById('tournament-screen'),
     pause: document.getElementById('pause'),
     gameover: document.getElementById('gameover'),
+
     labelLeft: document.getElementById('label-left'),
     labelRight: document.getElementById('label-right'),
     scorePlayer: document.getElementById('score-player'),
     scoreAi: document.getElementById('score-ai'),
     diffLabel: document.getElementById('diff-label'),
     targetLabel: document.getElementById('target-label'),
-    menuSubtitle: document.getElementById('menu-subtitle'),
-    diffGroup: document.getElementById('difficulty-group'),
-    modeBadge: document.getElementById('mode-badge'),
-    controlsHelp: document.getElementById('controls-help'),
     footerHint: document.getElementById('footer-hint'),
+
+    tournamentCtaSub: document.getElementById('tournament-cta-sub'),
+    menuStatus: document.getElementById('menu-status'),
+    quickplaySubtitle: document.getElementById('quickplay-subtitle'),
+    skinsGrid: document.getElementById('skins-grid'),
+    tournamentSkinToggle: document.getElementById('tournament-skin-toggle'),
+
+    tournamentStepper: document.getElementById('tournament-stepper'),
+    tournamentHeading: document.getElementById('tournament-heading'),
+    tournamentUnlockBanner: document.getElementById('tournament-unlock-banner'),
+    tournamentStageBadge: document.getElementById('tournament-stage-badge'),
+    tournamentArenaName: document.getElementById('tournament-arena-name'),
+    tournamentRivalDesc: document.getElementById('tournament-rival-desc'),
+    tournamentPlayBtn: document.getElementById('tournament-play-btn'),
+    tournamentResetBtn: document.getElementById('tournament-reset-btn'),
+
+    pauseSubtitle: document.getElementById('pause-subtitle'),
+
     resultTitle: document.getElementById('result-title'),
     resultScore: document.getElementById('result-score'),
+    resultUnlockBanner: document.getElementById('result-unlock-banner'),
     resultDetail: document.getElementById('result-detail'),
-    muteBtn: document.getElementById('mute-btn'),
+    restartBtn: document.getElementById('restart-btn'),
+    gameoverExtraBtn: document.getElementById('gameover-extra-btn'),
+
+    musicBtn: document.getElementById('music-btn'),
+    sfxBtn: document.getElementById('sfx-btn'),
     pauseBtn: document.getElementById('pause-btn'),
     diffBtns: document.querySelectorAll('.diff-btn'),
-    modeBtns: document.querySelectorAll('.mode-btn'),
   };
 
   let canvasRect = { left: 0, top: 0, width: W, height: H };
@@ -541,10 +1297,103 @@
   }
 
   // ==========================================================
+  //  Persistencia de Torneo y Skins
+  // ==========================================================
+  function loadUnlockedSkins() {
+    const set = new Set(['neon']);
+    try {
+      const parsed = JSON.parse(localStorage.getItem(STORAGE_KEYS.unlockedSkins) || '[]');
+      if (Array.isArray(parsed)) {
+        for (let i = 0; i < parsed.length; i++) {
+          if (SKINS[parsed[i]]) set.add(parsed[i]);
+        }
+      }
+    } catch (_) { /* ignorar storage corrupto */ }
+    return set;
+  }
+
+  function saveUnlockedSkins(set) {
+    localStorage.setItem(STORAGE_KEYS.unlockedSkins, JSON.stringify(Array.from(set)));
+  }
+
+  function loadTournamentProgress() {
+    const fallback = { currentRound: 0, completedRounds: [false, false, false, false], tournamentsWon: 0 };
+    try {
+      const parsed = JSON.parse(localStorage.getItem(STORAGE_KEYS.tournament) || 'null');
+      if (!parsed || typeof parsed !== 'object') return fallback;
+      const currentRound = clamp(parseInt(parsed.currentRound, 10) || 0, 0, TOURNAMENT_ROUNDS.length - 1);
+      const completedRounds = Array.isArray(parsed.completedRounds) && parsed.completedRounds.length === 4
+        ? parsed.completedRounds.map(Boolean)
+        : [false, false, false, false];
+      const tournamentsWon = Math.max(0, parseInt(parsed.tournamentsWon, 10) || 0);
+      return { currentRound, completedRounds, tournamentsWon };
+    } catch (_) {
+      return fallback;
+    }
+  }
+
+  function saveTournamentProgress() {
+    localStorage.setItem(STORAGE_KEYS.tournament, JSON.stringify({
+      currentRound: tournament.currentRound,
+      completedRounds: tournament.completedRounds,
+      tournamentsWon: tournament.tournamentsWon,
+    }));
+  }
+
+  function readSavedSurvivalBest() {
+    const raw = parseInt(localStorage.getItem(STORAGE_KEYS.survivalBest) || '0', 10);
+    return Number.isFinite(raw) && raw > 0 ? raw : 0;
+  }
+
+  const unlockedSkins = loadUnlockedSkins();
+  const tournament = loadTournamentProgress();
+
+  const savedEquipped = localStorage.getItem(STORAGE_KEYS.equippedSkin);
+  let equippedSkin = (savedEquipped && unlockedSkins.has(savedEquipped)) ? savedEquipped : 'neon';
+  let tournamentUseEquippedSkin = localStorage.getItem(STORAGE_KEYS.tournamentUseSkin) === '1';
+
+  function unlockSkin(skinId) {
+    if (!skinId || !SKINS[skinId] || unlockedSkins.has(skinId)) return false;
+    unlockedSkins.add(skinId);
+    saveUnlockedSkins(unlockedSkins);
+    return true;
+  }
+
+  function equipSkin(skinId) {
+    if (!SKINS[skinId] || !unlockedSkins.has(skinId)) return false;
+    equippedSkin = skinId;
+    localStorage.setItem(STORAGE_KEYS.equippedSkin, skinId);
+    applySkin(skinId);
+    renderSkinsGrid();
+    updateMenuUI();
+    return true;
+  }
+
+  function applySkin(skinId) {
+    const id = SKINS[skinId] ? skinId : 'neon';
+    activeSkinId = id;
+    activeSkin = SKINS[id];
+    activeSprites = getSkinSprites(id);
+    if (document.body) document.body.dataset.theme = id;
+    if (themeColorMeta) themeColorMeta.setAttribute('content', activeSkin.themeColor);
+    Music.setTrack(id);
+    if (!loopActive) render();
+  }
+
+  function getTournamentRoundSkin(roundIdx) {
+    if (tournamentUseEquippedSkin && unlockedSkins.has(equippedSkin)) {
+      return equippedSkin;
+    }
+    const round = TOURNAMENT_ROUNDS[clamp(roundIdx, 0, TOURNAMENT_ROUNDS.length - 1)];
+    return round.skin;
+  }
+
+  // ==========================================================
   //  Estado del juego y pools pre-asignados (cero GC en juego)
   // ==========================================================
   const player = {
     baseX: PADDLE_MARGIN,
+    prevX: PADDLE_MARGIN,
     x: PADDLE_MARGIN,
     y: H / 2 - PADDLE_H / 2,
     w: PADDLE_W,
@@ -561,6 +1410,7 @@
 
   const ai = {
     baseX: W - PADDLE_MARGIN - PADDLE_W,
+    prevX: W - PADDLE_MARGIN - PADDLE_W,
     x: W - PADDLE_MARGIN - PADDLE_W,
     y: H / 2 - PADDLE_H / 2,
     w: PADDLE_W,
@@ -612,7 +1462,7 @@
     if (trailCount < TRAIL_LENGTH) trailCount++;
   }
 
-  // Pool fijo de partículas (SoA en TypedArrays: cero objetos nuevos, cero splice)
+  // Pool fijo de partículas (SoA en TypedArrays)
   const pX = new Float32Array(MAX_PARTICLES);
   const pY = new Float32Array(MAX_PARTICLES);
   const pVx = new Float32Array(MAX_PARTICLES);
@@ -627,7 +1477,7 @@
     particleCount = 0;
   }
 
-  // Pool fijo de avisos flotantes en canvas (¡REMATE!, IA NV. 2, etc.)
+  // Pool fijo de avisos flotantes en canvas
   const callouts = [];
   for (let i = 0; i < MAX_CALLOUTS; i++) {
     callouts.push({ active: false, text: '', x: 0, y: 0, color: '#fb923c', life: 0, maxLife: 0.75 });
@@ -666,28 +1516,35 @@
     }
   }
 
-  // Configuración reutilizable de IA en modo Supervivencia (cero GC)
-  const survivalAICfg = { maxSpeed: 340, accel: 2200, reaction: 0.22, error: 32 };
+  // Configuración reutilizable de IA en Supervivencia (cero GC)
+  const survivalAICfg = {
+    maxSpeed: 340,
+    accel: 2200,
+    reaction: 0.22,
+    error: 32,
+    edgeAim: 0.25,
+    wallAnticipation: 0.85,
+    mistakeChance: 0.03,
+  };
+
   function getSurvivalAIConfig(level) {
     const lvl = Math.max(0, level - 1);
     survivalAICfg.maxSpeed = Math.min(960, 340 + lvl * 55);
     survivalAICfg.accel = Math.min(6800, 2200 + lvl * 380);
     survivalAICfg.reaction = Math.max(0.03, 0.22 - lvl * 0.022);
     survivalAICfg.error = Math.max(4, 32 - lvl * 3);
+    survivalAICfg.edgeAim = Math.min(0.85, 0.2 + lvl * 0.08);
+    survivalAICfg.wallAnticipation = Math.min(1.0, 0.7 + lvl * 0.06);
     return survivalAICfg;
   }
 
-  function readSavedSurvivalBest() {
-    const raw = parseInt(localStorage.getItem(STORAGE_KEYS.survivalBest) || '0', 10);
-    return Number.isFinite(raw) && raw > 0 ? raw : 0;
-  }
-
   const game = {
-    state: 'menu', // menu | countdown | playing | paused | gameover
+    state: 'menu', // menu | quickplay | skins | intermission | countdown | playing | paused | gameover
     pausedFrom: null,
-    mode: MODES.VS_AI,
+    mode: MODES.TOURNAMENT,
     difficulty: 'normal',
     scores: { player: 0, ai: 0 },
+    winScore: TOURNAMENT_WIN_SCORE,
     survivalHits: 0,
     survivalLevel: 1,
     survivalBest: readSavedSurvivalBest(),
@@ -697,6 +1554,8 @@
     serveDir: 1,
     rally: 0,
     shake: 0,
+    lastUnlockedSkin: null,
+    tournamentChampionRun: false,
   };
 
   let rafId = 0;
@@ -761,6 +1620,7 @@
   }
 
   function startLoop() {
+    Music.syncPlayback();
     if (loopActive || !shouldRunLoop()) return;
     loopActive = true;
     const now = performance.now();
@@ -775,6 +1635,7 @@
       cancelAnimationFrame(rafId);
       rafId = 0;
     }
+    Music.syncPlayback();
   }
 
   function renderStatic() {
@@ -783,7 +1644,7 @@
   }
 
   // ==========================================================
-  //  Flujo de partida y HUD
+  //  UI de Overlays, Menú, Torneo y Selector de Skins
   // ==========================================================
   function updatePauseBtn() {
     const show = game.state === 'playing' || game.state === 'countdown' || game.state === 'paused';
@@ -792,6 +1653,9 @@
 
   function setOverlay(name) {
     el.menu.classList.toggle('visible', name === 'menu');
+    el.quickplay.classList.toggle('visible', name === 'quickplay');
+    el.skins.classList.toggle('visible', name === 'skins');
+    el.tournamentScreen.classList.toggle('visible', name === 'intermission');
     el.pause.classList.toggle('visible', name === 'pause');
     el.gameover.classList.toggle('visible', name === 'gameover');
     updatePauseBtn();
@@ -807,11 +1671,18 @@
     el.targetLabel.classList.remove('level-up');
     el.scoreAi.classList.remove('record-live');
 
-    if (game.mode === MODES.TWO_P) {
+    if (game.mode === MODES.TOURNAMENT) {
+      const round = TOURNAMENT_ROUNDS[tournament.currentRound] || TOURNAMENT_ROUNDS[0];
+      el.labelLeft.textContent = 'TÚ';
+      el.labelRight.textContent = 'IA';
+      el.diffLabel.textContent = `R${round.index + 1}/4 · ${round.shortName.toUpperCase()}`;
+      el.targetLabel.textContent = `${activeSkin.arenaTitle.toUpperCase()} · A ${TOURNAMENT_WIN_SCORE}`;
+      el.footerHint.textContent = `Torneo R${round.index + 1}: ${round.rivalName} · Empujá adelante o deslizá rápido para REMATE`;
+    } else if (game.mode === MODES.TWO_P) {
       el.labelLeft.textContent = 'J1';
       el.labelRight.textContent = 'J2';
       el.diffLabel.textContent = '2 JUGADORES';
-      el.targetLabel.textContent = `PRIMERO A ${WIN_SCORE}`;
+      el.targetLabel.textContent = `PRIMERO A ${QUICK_WIN_SCORE}`;
       el.footerHint.textContent = 'Mitad izq: J1 · Mitad der: J2 (multitáctil) · Empujá adelante o deslizá rápido para REMATE';
     } else if (game.mode === MODES.SURVIVAL) {
       el.labelLeft.textContent = 'RACHA';
@@ -825,7 +1696,7 @@
       el.labelLeft.textContent = 'TÚ';
       el.labelRight.textContent = 'IA';
       el.diffLabel.textContent = DIFFICULTY[game.difficulty].label;
-      el.targetLabel.textContent = `PRIMERO A ${WIN_SCORE}`;
+      el.targetLabel.textContent = `PRIMERO A ${QUICK_WIN_SCORE}`;
       el.footerHint.textContent = 'Arrastrá para mover · Empujá adelante o deslizá rápido para REMATE';
     }
   }
@@ -847,56 +1718,196 @@
   }
 
   function updateMenuUI() {
-    el.modeBtns.forEach((b) => {
-      const sel = b.dataset.mode === game.mode;
-      b.classList.toggle('selected', sel);
-      b.setAttribute('aria-checked', String(sel));
-    });
-
-    if (game.mode === MODES.VS_AI) {
-      el.menuSubtitle.textContent = `Primero en llegar a ${WIN_SCORE} puntos gana`;
-      el.diffGroup.classList.remove('hidden');
-      el.modeBadge.classList.add('hidden');
-      el.controlsHelp.firstElementChild.textContent =
-        'Arrastrá para mover · Empujá adelante o deslizá rápido al golpear para REMATE';
-    } else if (game.mode === MODES.TWO_P) {
-      el.menuSubtitle.textContent = `Dos jugadores en la misma pantalla · Primero a ${WIN_SCORE}`;
-      el.diffGroup.classList.add('hidden');
-      el.modeBadge.textContent = 'MULTITÁCTIL ACTIVADO · IZQ: J1 / DER: J2';
-      el.modeBadge.className = 'mode-badge two-player';
-      el.controlsHelp.firstElementChild.textContent =
-        'Cada jugador controla su mitad · Empujá adelante o deslizá rápido para REMATE';
+    const round = TOURNAMENT_ROUNDS[tournament.currentRound] || TOURNAMENT_ROUNDS[0];
+    const hasProgress = tournament.currentRound > 0;
+    if (hasProgress) {
+      el.tournamentCtaSub.textContent = `Continuar · Ronda ${round.index + 1}/4 (${round.shortName})`;
+    } else if (tournament.tournamentsWon > 0) {
+      const titles = tournament.tournamentsWon === 1 ? '1 título' : `${tournament.tournamentsWon} títulos`;
+      el.tournamentCtaSub.textContent = `4 Rondas · ${titles} · Desbloqueá Canchas`;
     } else {
-      el.menuSubtitle.textContent = `La IA acelera cada ${SURVIVAL_HITS_PER_LEVEL} golpes · Aguantá sin perder`;
-      el.diffGroup.classList.add('hidden');
-      const unit = game.survivalBest === 1 ? 'golpe' : 'golpes';
-      el.modeBadge.textContent = `RÉCORD ACTUAL: ${game.survivalBest} ${unit}`;
-      el.modeBadge.className = 'mode-badge';
-      el.controlsHelp.firstElementChild.textContent =
-        'Empujá adelante o deslizá rápido al impactar para lanzar un REMATE con curva';
+      el.tournamentCtaSub.textContent = '4 Rondas · Desbloqueá Canchas';
     }
+
+    const skinObj = SKINS[equippedSkin] || SKINS.neon;
+    const recordText = game.survivalBest > 0 ? ` · Récord Sup.: ${game.survivalBest}` : '';
+    el.menuStatus.textContent =
+      `Arena equipada: ${skinObj.name} · Skins: ${unlockedSkins.size}/${SKIN_ORDER.length}${recordText}`;
+    el.quickplaySubtitle.textContent =
+      `Primero a ${QUICK_WIN_SCORE} puntos · Arena: ${skinObj.name}`;
 
     updateHudLabels();
     updateScoreboard();
   }
 
-  function setMode(mode) {
-    if (mode !== MODES.VS_AI && mode !== MODES.TWO_P && mode !== MODES.SURVIVAL) {
-      mode = MODES.VS_AI;
+  function renderSkinsGrid() {
+    if (!el.skinsGrid) return;
+    el.skinsGrid.innerHTML = '';
+
+    el.tournamentSkinToggle.setAttribute('aria-pressed', String(tournamentUseEquippedSkin));
+    el.tournamentSkinToggle.textContent = tournamentUseEquippedSkin
+      ? 'Torneo: Equipada'
+      : 'Torneo: Alternadas';
+
+    for (let i = 0; i < SKIN_ORDER.length; i++) {
+      const id = SKIN_ORDER[i];
+      const skin = SKINS[id];
+      const isUnlocked = unlockedSkins.has(id);
+      const isEquipped = equippedSkin === id;
+
+      const card = document.createElement('button');
+      card.type = 'button';
+      card.dataset.skin = id;
+      card.className = 'skin-card' + (isEquipped ? ' equipped' : '') + (isUnlocked ? '' : ' locked');
+      card.setAttribute('role', 'listitem');
+      card.setAttribute('aria-disabled', String(!isUnlocked));
+
+      const preview = document.createElement('div');
+      preview.className = 'skin-preview';
+      preview.style.background = skin.previewBg;
+
+      const leftBar = document.createElement('span');
+      leftBar.className = 'mini-paddle';
+      leftBar.style.background = skin.playerColor;
+
+      const miniBall = document.createElement('span');
+      miniBall.className = 'mini-ball';
+      miniBall.style.background = skin.ballColor;
+      if (skin.pixelated) miniBall.style.borderRadius = '0';
+
+      const rightBar = document.createElement('span');
+      rightBar.className = 'mini-paddle';
+      rightBar.style.background = skin.aiColor;
+
+      preview.appendChild(leftBar);
+      preview.appendChild(miniBall);
+      preview.appendChild(rightBar);
+
+      const head = document.createElement('div');
+      head.className = 'skin-card-head';
+
+      const nameEl = document.createElement('span');
+      nameEl.className = 'skin-name';
+      nameEl.textContent = skin.name;
+
+      const tagEl = document.createElement('span');
+      tagEl.className = 'skin-tag ' + (isEquipped ? 'equipped' : isUnlocked ? 'unlocked' : 'locked');
+      tagEl.textContent = isEquipped ? 'EQUIPADA' : isUnlocked ? 'EQUIPAR' : 'BLOQUEADA';
+
+      head.appendChild(nameEl);
+      head.appendChild(tagEl);
+
+      const desc = document.createElement('p');
+      desc.className = 'skin-desc';
+      desc.textContent = isUnlocked ? skin.styleDesc : skin.unlockHint;
+
+      card.appendChild(preview);
+      card.appendChild(head);
+      card.appendChild(desc);
+
+      card.addEventListener('click', () => {
+        unlockAudio();
+        if (unlockedSkins.has(id)) {
+          equipSkin(id);
+          Sound.click();
+        } else {
+          Sound.wall();
+        }
+      });
+
+      el.skinsGrid.appendChild(card);
     }
-    game.mode = mode;
-    localStorage.setItem(STORAGE_KEYS.mode, mode);
+  }
+
+  function renderTournamentStepper() {
+    if (!el.tournamentStepper) return;
+    el.tournamentStepper.innerHTML = '';
+    for (let i = 0; i < TOURNAMENT_ROUNDS.length; i++) {
+      const r = TOURNAMENT_ROUNDS[i];
+      const node = document.createElement('span');
+      let cls = 'step-node';
+      let prefix = `${i + 1}.`;
+      if (tournament.completedRounds[i]) {
+        cls += ' done';
+        prefix = '✓';
+      } else if (i === tournament.currentRound) {
+        cls += ' current';
+      }
+      node.className = cls;
+      node.textContent = `${prefix} ${r.shortName}`;
+      el.tournamentStepper.appendChild(node);
+    }
+  }
+
+  function openTournamentIntermission(fromVictory, newlyUnlockedSkinId) {
+    game.mode = MODES.TOURNAMENT;
+    game.state = 'intermission';
+    clearActiveTouches();
+    clearCallouts();
+    clearParticles();
+    resetPaddles();
+    resetBall(false);
+
+    const round = TOURNAMENT_ROUNDS[tournament.currentRound] || TOURNAMENT_ROUNDS[0];
+    const arenaSkinId = getTournamentRoundSkin(tournament.currentRound);
+    applySkin(arenaSkinId);
+    updateHudLabels();
+    updateScoreboard();
+    renderTournamentStepper();
+
+    if (fromVictory) {
+      el.tournamentHeading.textContent = `¡RONDA ${round.index} SUPERADA!`;
+      el.tournamentHeading.className = 'overlay-title compact-title win';
+      el.tournamentPlayBtn.textContent = 'SIGUIENTE RONDA';
+    } else {
+      el.tournamentHeading.textContent = round.stageName;
+      el.tournamentHeading.className = 'overlay-title compact-title';
+      el.tournamentPlayBtn.textContent = round.index > 0 ? 'CONTINUAR RONDA' : 'COMENZAR TORNEO';
+    }
+
+    if (newlyUnlockedSkinId && SKINS[newlyUnlockedSkinId]) {
+      el.tournamentUnlockBanner.textContent = `★ SKIN DESBLOQUEADA: ${SKINS[newlyUnlockedSkinId].name.toUpperCase()}`;
+      el.tournamentUnlockBanner.classList.remove('hidden');
+    } else {
+      el.tournamentUnlockBanner.classList.add('hidden');
+    }
+
+    el.tournamentStageBadge.textContent = `RONDA ${round.index + 1} / ${TOURNAMENT_ROUNDS.length} · ${round.stageName}`;
+    el.tournamentArenaName.textContent = SKINS[arenaSkinId].arenaTitle;
+    el.tournamentRivalDesc.textContent =
+      `Rival: ${round.rivalName} · ${round.aiStyle} · Primero a ${TOURNAMENT_WIN_SCORE}`;
+
+    el.tournamentResetBtn.classList.toggle('hidden', tournament.currentRound === 0);
+
+    setOverlay('intermission');
+    renderStatic();
+  }
+
+  function openQuickPlayMenu() {
+    game.mode = MODES.VS_AI;
+    game.state = 'quickplay';
+    applySkin(equippedSkin);
     updateMenuUI();
+    setOverlay('quickplay');
+    renderStatic();
+  }
+
+  function openSkinsMenu() {
+    game.state = 'skins';
+    applySkin(equippedSkin);
+    renderSkinsGrid();
+    setOverlay('skins');
+    renderStatic();
   }
 
   function setDifficulty(diff) {
-    game.difficulty = diff;
+    game.difficulty = DIFFICULTY[diff] ? diff : 'normal';
     el.diffBtns.forEach((b) => {
-      const sel = b.dataset.diff === diff;
+      const sel = b.dataset.diff === game.difficulty;
       b.classList.toggle('selected', sel);
       b.setAttribute('aria-checked', String(sel));
     });
-    localStorage.setItem(STORAGE_KEYS.difficulty, diff);
+    localStorage.setItem(STORAGE_KEYS.difficulty, game.difficulty);
     updateHudLabels();
   }
 
@@ -911,6 +1922,7 @@
   }
 
   function resetPaddle(p) {
+    p.prevX = p.baseX;
     p.x = p.baseX;
     p.y = H / 2 - PADDLE_H / 2;
     p.vy = 0;
@@ -952,26 +1964,49 @@
     game.shake = 0;
   }
 
-  function startMatch() {
+  function startMatch(modeOverride) {
     unlockAudio();
     if (gameoverSoundTimer) {
       clearTimeout(gameoverSoundTimer);
       gameoverSoundTimer = 0;
     }
+    if (modeOverride) {
+      game.mode = modeOverride;
+    }
+
     game.scores.player = 0;
     game.scores.ai = 0;
     game.survivalHits = 0;
     game.survivalLevel = 1;
     game.survivalNewRecord = false;
+    game.lastUnlockedSkin = null;
+    game.tournamentChampionRun = false;
+
+    if (game.mode === MODES.TOURNAMENT) {
+      game.winScore = TOURNAMENT_WIN_SCORE;
+      applySkin(getTournamentRoundSkin(tournament.currentRound));
+    } else {
+      game.winScore = QUICK_WIN_SCORE;
+      applySkin(equippedSkin);
+    }
+
     clearParticles();
     clearCallouts();
     resetPaddles();
     updateHudLabels();
     updateScoreboard();
+
     game.serveDir = game.mode === MODES.SURVIVAL ? -1 : (Math.random() < 0.5 ? -1 : 1);
     startCountdown(COUNTDOWN_TIME, false);
     setOverlay(null);
     startLoop();
+  }
+
+  function startNewTournament() {
+    tournament.currentRound = 0;
+    tournament.completedRounds = [false, false, false, false];
+    saveTournamentProgress();
+    openTournamentIntermission(false, null);
   }
 
   function startCountdown(duration = COUNTDOWN_TIME, preserveSurvivalSpeed = false) {
@@ -998,6 +2033,12 @@
       game.pausedFrom = game.state;
       game.state = 'paused';
       clearActiveTouches();
+      if (game.mode === MODES.TOURNAMENT) {
+        const r = TOURNAMENT_ROUNDS[tournament.currentRound] || TOURNAMENT_ROUNDS[0];
+        el.pauseSubtitle.textContent = `Torneo · Ronda ${r.index + 1}/4 (${r.stageName}) · ${activeSkin.arenaTitle}`;
+      } else {
+        el.pauseSubtitle.textContent = 'Tocá CONTINUAR para volver a la partida';
+      }
       setOverlay('pause');
       Sound.click();
       renderStatic();
@@ -1019,6 +2060,7 @@
       commitSurvivalRecord();
     }
     game.state = 'menu';
+    game.mode = MODES.TOURNAMENT;
     game.scores.player = game.scores.ai = 0;
     game.survivalHits = 0;
     game.survivalLevel = 1;
@@ -1027,6 +2069,7 @@
     clearCallouts();
     resetPaddles();
     resetBall(false);
+    applySkin(equippedSkin);
     updateMenuUI();
     setOverlay('menu');
     renderStatic();
@@ -1059,16 +2102,14 @@
   function pointScored(who) {
     if (game.mode === MODES.SURVIVAL) {
       if (who === 'player') {
-        // El jugador superó a la IA: ¡no pierde la racha!
         registerSurvivalHit(true);
         Sound.score(true);
         game.shake = 8;
         spawnSparks(W, ball.y, -1, 18, COLOR_IDX_PLAYER, 1.4);
-        spawnCallout('¡IA SUPERADA! +1', W / 2, H / 2 - 48, '#22d3ee', 0.95);
+        spawnCallout('¡IA SUPERADA! +1', W / 2, H / 2 - 48, activeSkin.playerColor, 0.95);
         game.serveDir = -1;
         startCountdown(SURVIVAL_RESERVE_COUNTDOWN, true);
       } else {
-        // El jugador perdió la pelota: fin de la racha
         Sound.score(false);
         game.shake = 10;
         spawnSparks(0, ball.y, 1, 20, COLOR_IDX_AI, 1.5);
@@ -1092,12 +2133,108 @@
       1.5
     );
 
-    if (game.scores[who] >= WIN_SCORE) {
-      endMatch(who === 'player');
+    if (game.scores[who] >= game.winScore) {
+      if (game.mode === MODES.TOURNAMENT) {
+        handleTournamentMatchEnd(who === 'player');
+      } else {
+        endMatch(who === 'player');
+      }
       return;
     }
     game.serveDir = who === 'player' ? 1 : -1;
     startCountdown(COUNTDOWN_TIME, false);
+  }
+
+  function handleTournamentMatchEnd(playerWon) {
+    const round = TOURNAMENT_ROUNDS[tournament.currentRound] || TOURNAMENT_ROUNDS[0];
+
+    if (playerWon) {
+      tournament.completedRounds[round.index] = true;
+      const unlockedNow = round.unlockSkin && unlockSkin(round.unlockSkin) ? round.unlockSkin : null;
+      game.lastUnlockedSkin = unlockedNow;
+
+      if (round.index < TOURNAMENT_ROUNDS.length - 1) {
+        // Avanza a la siguiente ronda y muestra pantalla intermedia
+        tournament.currentRound = round.index + 1;
+        saveTournamentProgress();
+        gameoverSoundTimer = setTimeout(() => {
+          gameoverSoundTimer = 0;
+          if (unlockedNow) Sound.unlock();
+          else Sound.win();
+        }, 280);
+        openTournamentIntermission(true, unlockedNow);
+        return;
+      }
+
+      // ¡Ganó la Ronda 4: Gran Campeón!
+      tournament.tournamentsWon += 1;
+      tournament.currentRound = 0;
+      tournament.completedRounds = [false, false, false, false];
+      saveTournamentProgress();
+      game.tournamentChampionRun = true;
+
+      game.state = 'gameover';
+      clearActiveTouches();
+      clearCallouts();
+      resetBall(false);
+      clearParticles();
+
+      el.resultTitle.textContent = '¡GRAN CAMPEÓN!';
+      el.resultTitle.className = 'overlay-title record';
+      el.resultScore.textContent = `${game.scores.player} — ${game.scores.ai}`;
+
+      if (unlockedNow && SKINS[unlockedNow]) {
+        el.resultUnlockBanner.textContent = `★ SKIN DESBLOQUEADA: ${SKINS[unlockedNow].name.toUpperCase()}`;
+        el.resultUnlockBanner.classList.remove('hidden');
+      } else {
+        el.resultUnlockBanner.classList.add('hidden');
+      }
+
+      el.resultDetail.textContent =
+        `Conquistaste las 4 arenas · Títulos ganados: ${tournament.tournamentsWon}`;
+      el.resultDetail.classList.remove('hidden');
+
+      el.restartBtn.textContent = 'NUEVO TORNEO';
+      el.gameoverExtraBtn.textContent = 'CANCHAS / SKINS';
+      el.gameoverExtraBtn.classList.remove('hidden');
+
+      gameoverSoundTimer = setTimeout(() => {
+        gameoverSoundTimer = 0;
+        if (unlockedNow) Sound.unlock();
+        else Sound.win();
+      }, 300);
+
+      setOverlay('gameover');
+      renderStatic();
+      return;
+    }
+
+    // Derrota en una ronda del Torneo: permite reintentar esa misma ronda o empezar de cero
+    game.state = 'gameover';
+    clearActiveTouches();
+    clearCallouts();
+    resetBall(false);
+    clearParticles();
+
+    el.resultTitle.textContent = 'ELIMINADO';
+    el.resultTitle.className = 'overlay-title lose';
+    el.resultScore.textContent = `${game.scores.player} — ${game.scores.ai}`;
+    el.resultUnlockBanner.classList.add('hidden');
+    el.resultDetail.textContent =
+      `Caíste en ${round.stageName} (Ronda ${round.index + 1}/4) ante ${round.rivalName}`;
+    el.resultDetail.classList.remove('hidden');
+
+    el.restartBtn.textContent = 'REINTENTAR RONDA';
+    el.gameoverExtraBtn.textContent = 'NUEVO TORNEO';
+    el.gameoverExtraBtn.classList.toggle('hidden', tournament.currentRound === 0);
+
+    gameoverSoundTimer = setTimeout(() => {
+      gameoverSoundTimer = 0;
+      Sound.lose();
+    }, 300);
+
+    setOverlay('gameover');
+    renderStatic();
   }
 
   function endMatch(playerWon) {
@@ -1107,17 +2244,20 @@
     resetBall(false);
     clearParticles();
 
+    el.resultUnlockBanner.classList.add('hidden');
+    el.resultDetail.classList.add('hidden');
+    el.restartBtn.textContent = 'REINICIAR';
+    el.gameoverExtraBtn.classList.add('hidden');
+
     if (game.mode === MODES.TWO_P) {
       el.resultTitle.textContent = playerWon ? '¡GANA J1!' : '¡GANA J2!';
       el.resultTitle.className = 'overlay-title ' + (playerWon ? 'win' : 'lose');
       el.resultScore.textContent = `${game.scores.player} — ${game.scores.ai}`;
-      el.resultDetail.classList.add('hidden');
       gameoverSoundTimer = setTimeout(() => { gameoverSoundTimer = 0; Sound.win(); }, 320);
     } else {
       el.resultTitle.textContent = playerWon ? '¡VICTORIA!' : 'DERROTA';
       el.resultTitle.className = 'overlay-title ' + (playerWon ? 'win' : 'lose');
       el.resultScore.textContent = `${game.scores.player} — ${game.scores.ai}`;
-      el.resultDetail.classList.add('hidden');
       gameoverSoundTimer = setTimeout(() => {
         gameoverSoundTimer = 0;
         if (playerWon) Sound.win();
@@ -1148,8 +2288,11 @@
       el.resultTitle.className = 'overlay-title lose';
     }
     el.resultScore.textContent = `${game.survivalHits} ${hitsWord}`;
+    el.resultUnlockBanner.classList.add('hidden');
     el.resultDetail.textContent = `IA Nivel ${game.survivalLevel} · Récord: ${game.survivalBest}`;
     el.resultDetail.classList.remove('hidden');
+    el.restartBtn.textContent = 'REINICIAR';
+    el.gameoverExtraBtn.classList.add('hidden');
 
     gameoverSoundTimer = setTimeout(() => {
       gameoverSoundTimer = 0;
@@ -1215,7 +2358,9 @@
   //  Física (incluye Remate y efecto / Smash)
   // ==========================================================
   function circleRectHit(p) {
-    const cx = clamp(ball.x, p.x, p.x + p.w);
+    const minX = p.prevX < p.x ? p.prevX : p.x;
+    const maxX = (p.prevX > p.x ? p.prevX : p.x) + p.w;
+    const cx = clamp(ball.x, minX, maxX);
     const cy = clamp(ball.y, p.y, p.y + p.h);
     const dx = ball.x - cx;
     const dy = ball.y - cy;
@@ -1239,7 +2384,6 @@
       ball.isSmash = true;
       ball.emberTimer = 0;
 
-      // Dirección de la leve curva: prioridad al deslizamiento rápido, luego velocidad/ángulo
       let curveDir = 0;
       if (isSwipeSmash && p.smashSwipeDir !== 0) {
         curveDir = p.smashSwipeDir;
@@ -1304,7 +2448,6 @@
     const sdt = dt / steps;
 
     for (let i = 0; i < steps; i++) {
-      // Aplicar curva sutil durante un Remate (Smash)
       if (ball.isSmash && ball.curve !== 0) {
         ball.vy += ball.curve * sdt;
         const maxVy = ball.speed * 0.78;
@@ -1323,7 +2466,7 @@
           ball.curve = ball.curve < 0 ? -ball.curve * 0.4 : ball.curve * 0.65;
         }
         Sound.wall();
-        spawnSparks(ball.x, 0, 1, 4, ball.isSmash ? COLOR_IDX_SMASH_ORANGE : COLOR_IDX_VIOLET, 0.55);
+        spawnSparks(ball.x, 0, 1, 4, ball.isSmash ? COLOR_IDX_SMASH_ORANGE : COLOR_IDX_ACCENT, 0.55);
       } else if (ball.y + BALL_R > H) {
         ball.y = H - BALL_R - (ball.y + BALL_R - H);
         ball.vy = -Math.abs(ball.vy);
@@ -1331,12 +2474,14 @@
           ball.curve = ball.curve > 0 ? -ball.curve * 0.4 : ball.curve * 0.65;
         }
         Sound.wall();
-        spawnSparks(ball.x, H, 1, 4, ball.isSmash ? COLOR_IDX_SMASH_ORANGE : COLOR_IDX_VIOLET, 0.55);
+        spawnSparks(ball.x, H, 1, 4, ball.isSmash ? COLOR_IDX_SMASH_ORANGE : COLOR_IDX_ACCENT, 0.55);
       }
 
-      if (ball.vx < 0 && ball.x >= player.x && circleRectHit(player)) {
+      const pMinX = player.prevX < player.x ? player.prevX : player.x;
+      const aMaxX = (ai.prevX > ai.x ? ai.prevX : ai.x) + ai.w;
+      if (ball.vx < 0 && ball.x >= pMinX && circleRectHit(player)) {
         hitPaddle(player, 1);
-      } else if (ball.vx > 0 && ball.x <= ai.x + ai.w && circleRectHit(ai)) {
+      } else if (ball.vx > 0 && ball.x <= aMaxX && circleRectHit(ai)) {
         hitPaddle(ai, -1);
       }
 
@@ -1346,7 +2491,6 @@
       }
     }
 
-    // Chispas de fuego detrás de la pelota durante un Remate
     if (ball.isSmash) {
       ball.emberTimer -= dt;
       if (ball.emberTimer <= 0) {
@@ -1364,7 +2508,7 @@
   }
 
   // ==========================================================
-  //  Jugadores e IA
+  //  Jugadores e IA (con ángulos tácticos y lectura de rebotes)
   // ==========================================================
   function triggerForwardLunge(paddle) {
     paddle.smashForwardTimer = SMASH_FORWARD_WINDOW;
@@ -1392,7 +2536,6 @@
       if ((paddle.y === 0 && paddle.vy < 0) || (paddle.y > 0 && paddle.vy > 0)) paddle.vy = 0;
     }
 
-    // Decaimiento suave de velocidades de gesto si el dedo se detuvo
     if (ctrl.lastTime && now - ctrl.lastTime > 45) {
       const decay = Math.pow(0.002, dt);
       ctrl.smoothVy *= decay;
@@ -1403,7 +2546,6 @@
       ctrl.anchorX += (ctrl.lastX - ctrl.anchorX) * Math.min(1, dt * 6.5);
     }
 
-    // Movimiento hacia adelante (empuje de remate) con retorno elástico
     if (paddle.smashForwardTimer > 0) {
       paddle.smashForwardTimer = Math.max(0, paddle.smashForwardTimer - dt);
     } else {
@@ -1413,6 +2555,7 @@
       paddle.smashSwipeTimer = Math.max(0, paddle.smashSwipeTimer - dt);
     }
 
+    paddle.prevX = paddle.x;
     paddle.lunge += (paddle.lungeTarget - paddle.lunge) * Math.min(1, dt * 26);
     if (paddle.lunge < 0.15 && paddle.lungeTarget === 0) paddle.lunge = 0;
     paddle.x = paddle.baseX + paddle.lunge * dir;
@@ -1429,10 +2572,18 @@
     return minY + (rel > span ? 2 * span - rel : rel);
   }
 
+  function getActiveAIConfig() {
+    if (game.mode === MODES.TOURNAMENT) {
+      return (TOURNAMENT_ROUNDS[tournament.currentRound] || TOURNAMENT_ROUNDS[0]).ai;
+    }
+    if (game.mode === MODES.SURVIVAL) {
+      return getSurvivalAIConfig(game.survivalLevel);
+    }
+    return DIFFICULTY[game.difficulty];
+  }
+
   function updateAI(dt) {
-    const cfg = game.mode === MODES.SURVIVAL
-      ? getSurvivalAIConfig(game.survivalLevel)
-      : DIFFICULTY[game.difficulty];
+    const cfg = getActiveAIConfig();
     const center = ai.y + ai.h / 2;
 
     if (game.state === 'playing') {
@@ -1440,12 +2591,12 @@
 
       if (dir !== ai.lastDir) {
         ai.lastDir = dir;
-        ai.reactTimer = cfg.reaction * rand(0.7, 1.4);
+        ai.reactTimer = cfg.reaction * rand(0.7, 1.35);
         ai.thinkTimer = 0;
         const speedFactor = 1 + ((ball.speed - BALL_START_SPEED) / BALL_START_SPEED) * 0.9;
         ai.errorOffset = rand(-1, 1) * cfg.error * speedFactor;
-        const mistakeChance = game.mode === MODES.SURVIVAL ? 0.03 : 0.08;
-        if (Math.random() < mistakeChance) ai.errorOffset *= 1.7;
+        const mistakeChance = cfg.mistakeChance !== undefined ? cfg.mistakeChance : 0.08;
+        if (Math.random() < mistakeChance) ai.errorOffset *= 1.75;
       }
 
       if (ai.reactTimer > 0) {
@@ -1457,7 +2608,26 @@
           if (dir > 0) {
             const distFrac = clamp((ai.x - ball.x) / W, 0, 1);
             const err = ai.errorOffset * (0.55 + 0.45 * distFrac);
-            ai.target = predictBallY(ai.x - BALL_R) + err;
+            const targetX = ai.x - BALL_R;
+            const exactY = predictBallY(targetX);
+            const wallAnt = cfg.wallAnticipation !== undefined ? cfg.wallAnticipation : 1;
+
+            let predictedY = exactY;
+            if (wallAnt < 1 && ball.vx > 0) {
+              const t = Math.max(0, (targetX - ball.x) / ball.vx);
+              const naiveY = clamp(ball.y + ball.vy * t, BALL_R, H - BALL_R);
+              predictedY = naiveY + (exactY - naiveY) * wallAnt;
+            }
+
+            // En rondas tácticas/avanzadas busca golpear con el borde para abrir ángulos
+            let edgeOffset = 0;
+            if (cfg.edgeAim && cfg.edgeAim > 0) {
+              const playerCenter = player.y + player.h * 0.5;
+              const openDir = playerCenter < H * 0.5 ? 1 : -1;
+              edgeOffset = -openDir * (ai.h * 0.34) * cfg.edgeAim;
+            }
+
+            ai.target = clamp(predictedY + edgeOffset + err, ai.h * 0.5, H - ai.h * 0.5);
           } else {
             ai.target = H / 2 + (ball.y - H / 2) * 0.3;
           }
@@ -1472,6 +2642,7 @@
     const maxDv = cfg.accel * dt;
     ai.vy += clamp(desired - ai.vy, -maxDv, maxDv);
     ai.y += ai.vy * dt;
+    ai.prevX = ai.baseX;
     ai.x = ai.baseX;
     if (ai.y < 0) { ai.y = 0; ai.vy = 0; }
     if (ai.y > H - ai.h) { ai.y = H - ai.h; ai.vy = 0; }
@@ -1528,11 +2699,10 @@
     const dy = p.y - PADDLE_PAD;
     ctx.drawImage(baseSprite, dx, dy, PADDLE_SPRITE_W, PADDLE_SPRITE_H);
 
-    // Aura cálida al empujar hacia adelante o rematar
     const chargeAlpha = Math.max(p.smashFlash, (p.lunge / MAX_LUNGE_X) * 0.55);
     if (chargeAlpha > 0.04) {
       ctx.globalAlpha = clamp(chargeAlpha, 0, 0.9);
-      ctx.drawImage(Sprites.paddleSmash, dx, dy, PADDLE_SPRITE_W, PADDLE_SPRITE_H);
+      ctx.drawImage(activeSprites.paddleSmash, dx, dy, PADDLE_SPRITE_W, PADDLE_SPRITE_H);
       ctx.globalAlpha = 1;
     }
 
@@ -1553,7 +2723,7 @@
         const size = isSmashPoint ? TRAIL_SMASH_SIZES[slot] : TRAIL_SIZES[slot];
         ctx.globalAlpha = isSmashPoint ? TRAIL_ALPHAS[slot] * 1.35 : TRAIL_ALPHAS[slot];
         ctx.drawImage(
-          isSmashPoint ? Sprites.trailDotSmash : Sprites.trailDot,
+          isSmashPoint ? activeSprites.trailDotSmash : activeSprites.trailDot,
           trailX[idx] - size * 0.5,
           trailY[idx] - size * 0.5,
           size,
@@ -1565,7 +2735,7 @@
 
     if (ball.isSmash) {
       ctx.drawImage(
-        Sprites.ballSmash,
+        activeSprites.ballSmash,
         ball.x - BALL_SMASH_SPRITE_HALF,
         ball.y - BALL_SMASH_SPRITE_HALF,
         BALL_SMASH_SPRITE_SIZE,
@@ -1573,7 +2743,7 @@
       );
     } else {
       ctx.drawImage(
-        Sprites.ball,
+        activeSprites.ball,
         ball.x - BALL_SPRITE_HALF,
         ball.y - BALL_SPRITE_HALF,
         BALL_SPRITE_SIZE,
@@ -1584,11 +2754,12 @@
 
   function drawParticles() {
     if (particleCount === 0) return;
+    const palette = activeSkin.particles;
     let lastColor = -1;
     for (let i = 0; i < particleCount; i++) {
       const cIdx = pColor[i];
       if (cIdx !== lastColor) {
-        ctx.fillStyle = PARTICLE_COLORS[cIdx];
+        ctx.fillStyle = palette[cIdx] || palette[0];
         lastColor = cIdx;
       }
       const alpha = pLife[i] * pInvMax[i];
@@ -1606,7 +2777,9 @@
     }
     if (!anyActive) return;
 
-    ctx.font = '800 18px "Segoe UI", system-ui, Roboto, sans-serif';
+    ctx.font = activeSkin.pixelated
+      ? '800 18px "Courier New", ui-monospace, monospace'
+      : '800 18px "Segoe UI", system-ui, Roboto, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.lineJoin = 'round';
@@ -1617,7 +2790,7 @@
       if (!c.active) continue;
       const alpha = clamp((c.life / c.maxLife) * 1.4, 0, 1);
       ctx.globalAlpha = alpha;
-      ctx.strokeStyle = 'rgba(11, 15, 25, 0.85)';
+      ctx.strokeStyle = activeSkin.calloutStroke;
       ctx.strokeText(c.text, c.x, c.y);
       ctx.fillStyle = c.color;
       ctx.fillText(c.text, c.x, c.y);
@@ -1628,7 +2801,7 @@
   function drawCountdown() {
     const n = Math.ceil(game.countdown);
     if (n <= 0 || n > 3) return;
-    const digitSprite = Sprites.digits[n];
+    const digitSprite = activeSprites.digits[n];
     if (!digitSprite) return;
 
     const frac = game.countdown - Math.floor(game.countdown);
@@ -1645,10 +2818,12 @@
     );
     ctx.globalAlpha = 1;
 
-    ctx.font = '600 16px "Segoe UI", system-ui, Roboto, sans-serif';
+    ctx.font = activeSkin.pixelated
+      ? '700 16px "Courier New", ui-monospace, monospace'
+      : '600 16px "Segoe UI", system-ui, Roboto, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'alphabetic';
-    ctx.fillStyle = 'rgba(226, 232, 240, 0.65)';
+    ctx.fillStyle = activeSkin.serveText;
     let serveMsg;
     if (game.mode === MODES.TWO_P) {
       serveMsg = game.serveDir < 0 ? 'SAQUE HACIA J1' : 'SAQUE HACIA J2';
@@ -1665,9 +2840,9 @@
       ctx.translate(rand(-game.shake, game.shake) * 0.5, rand(-game.shake, game.shake) * 0.5);
     }
 
-    ctx.drawImage(Sprites.bg, -BG_PAD, -BG_PAD, W + BG_PAD * 2, H + BG_PAD * 2);
-    drawPaddle(player, Sprites.player, Sprites.playerFlash);
-    drawPaddle(ai, Sprites.ai, Sprites.aiFlash);
+    ctx.drawImage(activeSprites.bg, -BG_PAD, -BG_PAD, W + BG_PAD * 2, H + BG_PAD * 2);
+    drawPaddle(player, activeSprites.player, activeSprites.playerFlash);
+    drawPaddle(ai, activeSprites.ai, activeSprites.aiFlash);
     drawParticles();
     if (game.state !== 'gameover') drawBall();
     drawCallouts();
@@ -1729,7 +2904,13 @@
       if (!e.repeat) triggerForwardLunge(ai);
     } else if (e.code === 'Space' || e.code === 'KeyP' || e.code === 'Escape') {
       e.preventDefault();
-      if (!e.repeat) togglePause();
+      if (!e.repeat) {
+        if (game.state === 'quickplay' || game.state === 'skins' || game.state === 'intermission') {
+          goToMenu();
+        } else {
+          togglePause();
+        }
+      }
     } else if (e.code === 'KeyR' && !e.repeat) {
       if (game.state === 'paused' || game.state === 'gameover') {
         e.preventDefault();
@@ -1737,9 +2918,18 @@
         startMatch();
       }
     } else if (e.code === 'KeyM' && !e.repeat) {
-      toggleMute();
+      toggleSfxMute();
+    } else if (e.code === 'KeyN' && !e.repeat) {
+      toggleMusicMute();
     } else if (e.code === 'Enter' && !e.repeat) {
-      if (game.state === 'menu' || game.state === 'gameover') { e.preventDefault(); startMatch(); }
+      if (game.state === 'menu') { e.preventDefault(); openTournamentIntermission(false, null); }
+      else if (game.state === 'intermission') { e.preventDefault(); startMatch(MODES.TOURNAMENT); }
+      else if (game.state === 'quickplay') { e.preventDefault(); startMatch(MODES.VS_AI); }
+      else if (game.state === 'gameover') {
+        e.preventDefault();
+        if (game.mode === MODES.TOURNAMENT && game.tournamentChampionRun) startNewTournament();
+        else startMatch();
+      }
     }
   });
 
@@ -1807,13 +2997,11 @@
     ctrl.pointerY = pt.y;
     ctrl.pointerActive = true;
 
-    // 1) Empuje hacia adelante (Remate frontal)
     const dxForward = dx * dir;
     const vxForward = dxForward / dtSec;
     ctrl.smoothVxForward = ctrl.smoothVxForward * 0.42 + vxForward * 0.58;
 
     if ((pt.x - ctrl.anchorX) * dir < 0) {
-      // Si retrocede, re-ancla para que el siguiente empuje hacia adelante responda al instante
       ctrl.anchorX = pt.x;
     }
     const forwardDisp = (pt.x - ctrl.anchorX) * dir;
@@ -1830,7 +3018,6 @@
       paddle.lungeTarget = Math.max(paddle.lungeTarget, MAX_LUNGE_X * 0.88);
     }
 
-    // 2) Deslizamiento vertical rápido (Remate con efecto)
     const vyInst = dy / dtSec;
     ctrl.smoothVy = ctrl.smoothVy * 0.4 + vyInst * 0.6;
     const signY = dy > 0 ? 1 : dy < 0 ? -1 : 0;
@@ -1862,7 +3049,6 @@
 
     let handled = false;
     if (game.mode === MODES.TWO_P) {
-      // Modo 2 Jugadores: multitáctil independiente por mitad de pantalla
       const splitX = getSplitClientX();
       for (let s = 0; s < 2; s++) {
         if (controls[s].touchId !== null && !hasTouchInList(e.touches, controls[s].touchId)) {
@@ -1878,7 +3064,6 @@
         }
       }
     } else {
-      // Modo 1 Jugador: un único toque controla la paleta izquierda en toda la pantalla
       if (controls[0].touchId !== null && !hasTouchInList(e.touches, controls[0].touchId)) {
         controls[0].touchId = null;
       }
@@ -1945,7 +3130,6 @@
         controls[side].swipeDistY = 0;
         controls[side].swipeSignY = 0;
 
-        // Si queda otro dedo sin asignar en el mismo lado, tomarlo suavemente
         const otherTouchId = controls[1 - side].touchId;
         for (let j = 0; j < e.touches.length; j++) {
           const candidate = e.touches[j];
@@ -1977,11 +3161,12 @@
   window.addEventListener('touchend', handleTouchEnd, { passive: true });
   window.addEventListener('touchcancel', handleTouchEnd, { passive: true });
 
-  // Ahorro de energía al perder el foco o pasar a segundo plano
+  // Ahorro de energía y pausa limpia de música al pasar a segundo plano
   function handleAppSuspend() {
     controls[0].up = controls[0].down = false;
     controls[1].up = controls[1].down = false;
     clearActiveTouches();
+    Music.stop();
     if (game.state === 'playing' || game.state === 'countdown') {
       togglePause();
     } else {
@@ -1994,23 +3179,51 @@
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
       handleAppSuspend();
-      Sound.suspend();
+      AudioBus.suspend();
     } else {
       refreshCanvasRect();
+      AudioBus.resume();
       if (shouldRunLoop()) {
         startLoop();
       } else {
+        Music.syncPlayback();
         render();
       }
     }
   });
 
-  // Botones
-  el.modeBtns.forEach((b) => b.addEventListener('click', () => {
+  // ==========================================================
+  //  Eventos de botones (Menú, Torneo, Skins, Audio, Pausa)
+  // ==========================================================
+  document.getElementById('tournament-btn').addEventListener('click', () => {
     unlockAudio();
-    setMode(b.dataset.mode);
     Sound.click();
-  }));
+    openTournamentIntermission(false, null);
+  });
+
+  document.getElementById('quickplay-open-btn').addEventListener('click', () => {
+    unlockAudio();
+    Sound.click();
+    openQuickPlayMenu();
+  });
+
+  document.getElementById('two-player-btn').addEventListener('click', () => {
+    unlockAudio();
+    Sound.click();
+    startMatch(MODES.TWO_P);
+  });
+
+  document.getElementById('survival-btn').addEventListener('click', () => {
+    unlockAudio();
+    Sound.click();
+    startMatch(MODES.SURVIVAL);
+  });
+
+  document.getElementById('skins-open-btn').addEventListener('click', () => {
+    unlockAudio();
+    Sound.click();
+    openSkinsMenu();
+  });
 
   el.diffBtns.forEach((b) => b.addEventListener('click', () => {
     unlockAudio();
@@ -2018,36 +3231,117 @@
     Sound.click();
   }));
 
-  document.getElementById('start-btn').addEventListener('click', startMatch);
-  document.getElementById('restart-btn').addEventListener('click', startMatch);
+  document.getElementById('quickplay-start-btn').addEventListener('click', () => {
+    unlockAudio();
+    Sound.click();
+    startMatch(MODES.VS_AI);
+  });
+
+  document.getElementById('quickplay-back-btn').addEventListener('click', () => {
+    unlockAudio();
+    Sound.click();
+    goToMenu();
+  });
+
+  document.getElementById('skins-back-btn').addEventListener('click', () => {
+    unlockAudio();
+    Sound.click();
+    goToMenu();
+  });
+
+  el.tournamentSkinToggle.addEventListener('click', () => {
+    unlockAudio();
+    tournamentUseEquippedSkin = !tournamentUseEquippedSkin;
+    localStorage.setItem(STORAGE_KEYS.tournamentUseSkin, tournamentUseEquippedSkin ? '1' : '0');
+    renderSkinsGrid();
+    Sound.click();
+  });
+
+  el.tournamentPlayBtn.addEventListener('click', () => {
+    unlockAudio();
+    Sound.click();
+    startMatch(MODES.TOURNAMENT);
+  });
+
+  el.tournamentResetBtn.addEventListener('click', () => {
+    unlockAudio();
+    Sound.click();
+    startNewTournament();
+  });
+
+  document.getElementById('tournament-menu-btn').addEventListener('click', () => {
+    unlockAudio();
+    Sound.click();
+    goToMenu();
+  });
+
   document.getElementById('pause-restart-btn').addEventListener('click', () => {
     unlockAudio();
     Sound.click();
     startMatch();
   });
+
   document.getElementById('resume-btn').addEventListener('click', togglePause);
   document.getElementById('quit-btn').addEventListener('click', goToMenu);
   document.getElementById('menu-btn').addEventListener('click', goToMenu);
+
+  el.restartBtn.addEventListener('click', () => {
+    unlockAudio();
+    Sound.click();
+    if (game.mode === MODES.TOURNAMENT && game.tournamentChampionRun) {
+      startNewTournament();
+    } else {
+      startMatch();
+    }
+  });
+
+  el.gameoverExtraBtn.addEventListener('click', () => {
+    unlockAudio();
+    Sound.click();
+    if (game.mode === MODES.TOURNAMENT && game.tournamentChampionRun) {
+      openSkinsMenu();
+    } else if (game.mode === MODES.TOURNAMENT) {
+      startNewTournament();
+    }
+  });
+
   el.pauseBtn.addEventListener('click', (e) => {
     unlockAudio();
     togglePause();
     e.currentTarget.blur();
   });
 
-  function toggleMute() {
-    unlockAudio();
+  function renderAudioButtons() {
+    el.musicBtn.classList.toggle('muted', Music.muted);
+    el.musicBtn.setAttribute('aria-label', Music.muted ? 'Activar música' : 'Silenciar música');
+    el.musicBtn.title = Music.muted ? 'Activar música' : 'Silenciar música';
+
+    el.sfxBtn.classList.toggle('muted', Sound.muted);
+    el.sfxBtn.setAttribute('aria-label', Sound.muted ? 'Activar efectos de sonido' : 'Silenciar efectos de sonido');
+    el.sfxBtn.title = Sound.muted ? 'Activar efectos (SFX)' : 'Silenciar efectos (SFX)';
+  }
+
+  function toggleMusicMute() {
+    AudioBus.init();
+    Music.setMuted(!Music.muted);
+    renderAudioButtons();
+    if (!Sound.muted) Sound.click();
+  }
+
+  function toggleSfxMute() {
+    AudioBus.init();
     Sound.setMuted(!Sound.muted);
-    renderMuteBtn();
+    renderAudioButtons();
+    if (!Sound.muted) Sound.click();
   }
 
-  function renderMuteBtn() {
-    el.muteBtn.classList.toggle('muted', Sound.muted);
-    el.muteBtn.setAttribute('aria-label', Sound.muted ? 'Activar audio' : 'Silenciar audio');
-    el.muteBtn.title = Sound.muted ? 'Activar audio' : 'Silenciar';
-  }
+  el.musicBtn.addEventListener('click', (e) => {
+    toggleMusicMute();
+    e.currentTarget.blur();
+  });
 
-  el.muteBtn.addEventListener('click', (e) => {
-    toggleMute();
+  el.sfxBtn.addEventListener('click', (e) => {
+    toggleSfxMute();
     e.currentTarget.blur();
   });
 
@@ -2067,18 +3361,36 @@
   }
 
   // ==========================================================
-  //  Inicio (estático en menú hasta pulsar JUGAR)
+  //  Inicio (estático en menú hasta pulsar un modo)
   // ==========================================================
   const savedDiff = localStorage.getItem(STORAGE_KEYS.difficulty);
   setDifficulty(DIFFICULTY[savedDiff] ? savedDiff : 'normal');
-  const savedMode = localStorage.getItem(STORAGE_KEYS.mode);
-  setMode(savedMode || MODES.VS_AI);
-  renderMuteBtn();
+  applySkin(equippedSkin);
+  renderAudioButtons();
   updatePauseBtn();
+  updateMenuUI();
   resetPaddles();
   resetBall(false);
   resizeCanvas();
   renderStatic();
 
-  window.__pong = { game, ball, player, ai, controls, DIFFICULTY, MODES };
+  window.__pong = {
+    game,
+    tournament,
+    ball,
+    player,
+    ai,
+    controls,
+    DIFFICULTY,
+    MODES,
+    SKINS,
+    TOURNAMENT_ROUNDS,
+    MUSIC_TRACKS,
+    Music,
+    Sound,
+    AudioBus,
+    getActiveSkin: () => activeSkinId,
+    getUnlockedSkins: () => Array.from(unlockedSkins),
+    getEquippedSkin: () => equippedSkin,
+  };
 })();

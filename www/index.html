@@ -8,7 +8,7 @@
   <link rel="icon" type="image/svg+xml" href="logo.svg">
   <link rel="stylesheet" href="style.css">
 </head>
-<body>
+<body data-theme="neon">
   <main id="app">
     <header id="hud">
       <button id="pause-btn" class="icon-btn left-btn hidden" type="button" aria-label="Pausar partida" title="Pausa">
@@ -17,64 +17,121 @@
           <rect x="14" y="5" width="4" height="14" rx="1.2" fill="currentColor"/>
         </svg>
       </button>
+
       <div class="score player">
         <span id="label-left" class="label">TÚ</span>
         <span id="score-player" class="value">0</span>
       </div>
+
       <div class="hud-center">
-        <span id="diff-label">NORMAL</span>
-        <span id="target-label" class="target">PRIMERO A 7</span>
+        <span id="diff-label">TORNEO</span>
+        <span id="target-label" class="target">PRIMERO A 5</span>
       </div>
+
       <div class="score ai">
         <span id="score-ai" class="value">0</span>
         <span id="label-right" class="label">IA</span>
       </div>
-      <button id="mute-btn" class="icon-btn" type="button" aria-label="Silenciar audio" title="Silenciar">
-        <svg class="icon-on" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
-          <path d="M4 9v6h4l5 4V5L8 9H4z" fill="currentColor"/>
-          <path d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-        </svg>
-        <svg class="icon-off" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
-          <path d="M4 9v6h4l5 4V5L8 9H4z" fill="currentColor"/>
-          <path d="M16.5 9.5l5 5M21.5 9.5l-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-        </svg>
-      </button>
+
+      <div class="audio-controls">
+        <button id="music-btn" class="icon-btn audio-btn" type="button" aria-label="Silenciar música" title="Música">
+          <svg class="icon-on" viewBox="0 0 24 24" width="19" height="19" aria-hidden="true">
+            <path d="M9 17.5a2.5 2.5 0 1 1-2-2.45V6.5l11-2v8.55a2.5 2.5 0 1 1-2-2.45V7.9l-7 1.27v8.33z" fill="currentColor"/>
+          </svg>
+          <svg class="icon-off" viewBox="0 0 24 24" width="19" height="19" aria-hidden="true">
+            <path d="M9 17.5a2.5 2.5 0 1 1-2-2.45V9.5l2 2v6zM18 4.5v7.6l-2-2V7.9l-4.5.82L9.9 7.1 18 4.5z" fill="currentColor" opacity="0.55"/>
+            <path d="M4 4l16 16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+          </svg>
+        </button>
+
+        <button id="sfx-btn" class="icon-btn audio-btn" type="button" aria-label="Silenciar efectos de sonido" title="Efectos (SFX)">
+          <svg class="icon-on" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+            <path d="M4 9v6h4l5 4V5L8 9H4z" fill="currentColor"/>
+            <path d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+          <svg class="icon-off" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+            <path d="M4 9v6h4l5 4V5L8 9H4z" fill="currentColor"/>
+            <path d="M16.5 9.5l5 5M21.5 9.5l-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+        </button>
+      </div>
     </header>
 
     <div id="stage">
       <canvas id="game" aria-label="Campo de juego de Pong"></canvas>
 
-      <!-- Menú de inicio -->
+      <!-- Menú principal -->
       <section id="menu" class="overlay visible">
         <h1 class="title">NEON<span>PONG</span></h1>
 
-        <div class="mode-selector" role="radiogroup" aria-label="Modo de juego">
-          <button type="button" class="mode-btn selected" data-mode="vs-ai" role="radio" aria-checked="true">1J vs IA</button>
-          <button type="button" class="mode-btn" data-mode="2p" role="radio" aria-checked="false">2 Jugadores</button>
-          <button type="button" class="mode-btn" data-mode="survival" role="radio" aria-checked="false">Supervivencia</button>
+        <button id="tournament-btn" type="button" class="primary-btn tournament-cta">
+          <span class="cta-main">MODO TORNEO</span>
+          <span id="tournament-cta-sub" class="cta-sub">4 Rondas · Desbloqueá Canchas</span>
+        </button>
+
+        <div class="secondary-modes" role="group" aria-label="Otros modos y canchas">
+          <button id="quickplay-open-btn" type="button" class="mode-btn">Partida Rápida</button>
+          <button id="two-player-btn" type="button" class="mode-btn mode-2p">2 Jugadores</button>
+          <button id="survival-btn" type="button" class="mode-btn mode-survival">Supervivencia</button>
+          <button id="skins-open-btn" type="button" class="mode-btn mode-skins">Canchas / Skins</button>
         </div>
 
-        <p id="menu-subtitle" class="subtitle">Primero en llegar a 7 puntos gana</p>
+        <p id="menu-status" class="subtitle">Arena equipada: Neón Clásico · Desbloqueadas: 1/4</p>
+        <p class="controls-help">Arrastrá para mover · Empujá adelante o deslizá rápido al impactar para REMATE</p>
+      </section>
 
+      <!-- Submenú Partida Rápida -->
+      <section id="quickplay" class="overlay">
+        <h2 class="overlay-title">PARTIDA RÁPIDA</h2>
+        <p id="quickplay-subtitle" class="subtitle">Primero a 7 puntos · Arena: Neón Clásico</p>
         <div id="difficulty-group" class="difficulty" role="radiogroup" aria-label="Dificultad">
           <button type="button" class="diff-btn" data-diff="easy" role="radio">Fácil</button>
           <button type="button" class="diff-btn selected" data-diff="normal" role="radio">Normal</button>
           <button type="button" class="diff-btn" data-diff="hard" role="radio">Difícil</button>
         </div>
+        <div class="btn-row">
+          <button id="quickplay-start-btn" type="button" class="primary-btn">JUGAR</button>
+          <button id="quickplay-back-btn" type="button" class="secondary-btn">VOLVER</button>
+        </div>
+      </section>
 
-        <div id="mode-badge" class="mode-badge hidden" aria-live="polite"></div>
+      <!-- Selector de Canchas / Skins -->
+      <section id="skins" class="overlay skins-overlay">
+        <div class="skins-header">
+          <h2 class="overlay-title compact-title">CANCHAS / SKINS</h2>
+          <div class="skins-header-actions">
+            <button id="tournament-skin-toggle" type="button" class="pill-toggle" aria-pressed="false">
+              Torneo: Alternadas
+            </button>
+            <button id="skins-back-btn" type="button" class="secondary-btn compact-btn">VOLVER</button>
+          </div>
+        </div>
+        <div id="skins-grid" class="skins-grid" role="list" aria-label="Listado de canchas y skins"></div>
+      </section>
 
-        <button id="start-btn" type="button" class="primary-btn">JUGAR</button>
-
-        <ul id="controls-help" class="controls-help">
-          <li>Arrastrá el dedo para mover · Empujá adelante o deslizá rápido al golpear para REMATE</li>
-        </ul>
+      <!-- Pantalla intermedia de Torneo -->
+      <section id="tournament-screen" class="overlay tournament-overlay">
+        <div id="tournament-stepper" class="tournament-stepper" aria-label="Progreso del torneo"></div>
+        <h2 id="tournament-heading" class="overlay-title compact-title">CUARTOS DE FINAL</h2>
+        <div id="tournament-unlock-banner" class="unlock-banner hidden" aria-live="polite"></div>
+        <div class="next-arena-card">
+          <div class="arena-card-top">
+            <span id="tournament-stage-badge" class="stage-pill">RONDA 1 / 4</span>
+            <span id="tournament-arena-name" class="arena-name">Arena Neón</span>
+          </div>
+          <p id="tournament-rival-desc" class="subtitle">Rival: Centinela Neón · IA Inicial · Primero a 5 puntos</p>
+        </div>
+        <div class="btn-row">
+          <button id="tournament-play-btn" type="button" class="primary-btn">JUGAR RONDA</button>
+          <button id="tournament-reset-btn" type="button" class="secondary-btn hidden">REINICIAR TORNEO</button>
+          <button id="tournament-menu-btn" type="button" class="secondary-btn">MENÚ</button>
+        </div>
       </section>
 
       <!-- Pausa -->
       <section id="pause" class="overlay">
         <h2 class="overlay-title">PAUSA</h2>
-        <p class="subtitle">Toca CONTINUAR para volver a la partida</p>
+        <p id="pause-subtitle" class="subtitle">Tocá CONTINUAR para volver a la partida</p>
         <div class="btn-row">
           <button id="resume-btn" type="button" class="primary-btn">CONTINUAR</button>
           <button id="pause-restart-btn" type="button" class="secondary-btn">REINICIAR</button>
@@ -86,15 +143,17 @@
       <section id="gameover" class="overlay">
         <h2 id="result-title" class="overlay-title">¡VICTORIA!</h2>
         <p id="result-score" class="final-score">7 — 0</p>
+        <div id="result-unlock-banner" class="unlock-banner hidden" aria-live="polite"></div>
         <p id="result-detail" class="subtitle hidden"></p>
         <div class="btn-row">
           <button id="restart-btn" type="button" class="primary-btn">REINICIAR</button>
+          <button id="gameover-extra-btn" type="button" class="secondary-btn hidden">NUEVO TORNEO</button>
           <button id="menu-btn" type="button" class="secondary-btn">MENÚ</button>
         </div>
       </section>
     </div>
 
-    <footer id="footer-hint" class="hint">Arrastrá para mover · Empujá adelante o deslizá rápido para REMATE</footer>
+    <footer id="footer-hint" class="hint">Modo Torneo: 4 rondas · Empujá adelante o deslizá rápido para REMATE</footer>
   </main>
 
   <script src="game.js"></script>
