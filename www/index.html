@@ -18,9 +18,17 @@
         </svg>
       </button>
 
-      <div class="score player">
-        <span id="label-left" class="label">TÚ</span>
-        <span id="score-player" class="value">0</span>
+      <div class="score-col player">
+        <div class="score player">
+          <span id="label-left" class="label">TÚ</span>
+          <span id="score-player" class="value">0</span>
+        </div>
+        <div id="power-p1-wrap" class="power-wrap hidden" aria-label="Barra de poder Jugador 1">
+          <div class="power-track">
+            <div id="power-p1-fill" class="power-fill p1"></div>
+          </div>
+          <span id="power-p1-text" class="power-text">0%</span>
+        </div>
       </div>
 
       <div class="hud-center">
@@ -28,9 +36,17 @@
         <span id="target-label" class="target">PRIMERO A 5</span>
       </div>
 
-      <div class="score ai">
-        <span id="score-ai" class="value">0</span>
-        <span id="label-right" class="label">IA</span>
+      <div class="score-col ai">
+        <div class="score ai">
+          <span id="score-ai" class="value">0</span>
+          <span id="label-right" class="label">IA</span>
+        </div>
+        <div id="power-p2-wrap" class="power-wrap right hidden" aria-label="Barra de poder Jugador 2">
+          <span id="power-p2-text" class="power-text">0%</span>
+          <div class="power-track">
+            <div id="power-p2-fill" class="power-fill p2"></div>
+          </div>
+        </div>
       </div>
 
       <div class="audio-controls">
@@ -60,6 +76,15 @@
     <div id="stage">
       <canvas id="game" aria-label="Campo de juego de Pong"></canvas>
 
+      <!-- Notificación flotante de Trofeo desbloqueado -->
+      <div id="trophy-toast" class="trophy-toast" role="status" aria-live="polite">
+        <span class="toast-icon" aria-hidden="true">★</span>
+        <div class="toast-body">
+          <span class="toast-kicker">TROFEO DESBLOQUEADO</span>
+          <span id="trophy-toast-title" class="toast-title">Primer Campeón</span>
+        </div>
+      </div>
+
       <!-- Menú principal -->
       <section id="menu" class="overlay visible">
         <h1 class="title">NEON<span>PONG</span></h1>
@@ -69,15 +94,19 @@
           <span id="tournament-cta-sub" class="cta-sub">4 Rondas · Desbloqueá Canchas</span>
         </button>
 
-        <div class="secondary-modes" role="group" aria-label="Otros modos y canchas">
+        <div class="secondary-modes" role="group" aria-label="Modos de juego secundarios">
           <button id="quickplay-open-btn" type="button" class="mode-btn">Partida Rápida</button>
           <button id="two-player-btn" type="button" class="mode-btn mode-2p">2 Jugadores</button>
           <button id="survival-btn" type="button" class="mode-btn mode-survival">Supervivencia</button>
-          <button id="skins-open-btn" type="button" class="mode-btn mode-skins">Canchas / Skins</button>
         </div>
 
-        <p id="menu-status" class="subtitle">Arena equipada: Neón Clásico · Desbloqueadas: 1/4</p>
-        <p class="controls-help">Arrastrá para mover · Empujá adelante o deslizá rápido al impactar para REMATE</p>
+        <div class="secondary-modes meta-modes" role="group" aria-label="Canchas, skins y trofeos">
+          <button id="skins-open-btn" type="button" class="mode-btn mode-skins">Canchas / Skins</button>
+          <button id="trophies-open-btn" type="button" class="mode-btn mode-trophies">Trofeos y Récords</button>
+        </div>
+
+        <p id="menu-status" class="subtitle">Arena equipada: Neón Clásico · Skins: 1/4 · Trofeos: 0/5</p>
+        <p class="controls-help">3 golpes Smash cargan la Barra al 100% y activan la PELOTA FURIOSA</p>
       </section>
 
       <!-- Submenú Partida Rápida -->
@@ -107,6 +136,36 @@
           </div>
         </div>
         <div id="skins-grid" class="skins-grid" role="list" aria-label="Listado de canchas y skins"></div>
+      </section>
+
+      <!-- Panel de Trofeos y Récords -->
+      <section id="trophies" class="overlay trophies-overlay">
+        <div class="skins-header">
+          <div class="trophies-title-wrap">
+            <h2 class="overlay-title compact-title">TROFEOS Y RÉCORDS</h2>
+            <span id="trophies-count-badge" class="stage-pill">0 / 5</span>
+          </div>
+          <button id="trophies-back-btn" type="button" class="secondary-btn compact-btn">VOLVER</button>
+        </div>
+        <div id="records-bar" class="records-bar" aria-label="Récords acumulados">
+          <div class="record-stat">
+            <span class="record-label">TORNEOS</span>
+            <span id="rec-tournaments" class="record-val">0</span>
+          </div>
+          <div class="record-stat">
+            <span class="record-label">MEJOR RACHA</span>
+            <span id="rec-streak" class="record-val">0</span>
+          </div>
+          <div class="record-stat">
+            <span class="record-label">MÁX. PELOTEO</span>
+            <span id="rec-rally" class="record-val">0</span>
+          </div>
+          <div class="record-stat">
+            <span class="record-label">SÚPER GOLPES</span>
+            <span id="rec-supers" class="record-val">0</span>
+          </div>
+        </div>
+        <div id="trophies-grid" class="trophies-grid" role="list" aria-label="Trofeos desbloqueables"></div>
       </section>
 
       <!-- Pantalla intermedia de Torneo -->
@@ -153,7 +212,7 @@
       </section>
     </div>
 
-    <footer id="footer-hint" class="hint">Modo Torneo: 4 rondas · Empujá adelante o deslizá rápido para REMATE</footer>
+    <footer id="footer-hint" class="hint">3 Smash cargan la Barra al 100% y disparan la Pelota Furiosa</footer>
   </main>
 
   <script src="game.js"></script>

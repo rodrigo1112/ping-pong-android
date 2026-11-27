@@ -34,7 +34,7 @@
   const COUNTDOWN_TIME = 3;
   const SURVIVAL_RESERVE_COUNTDOWN = 2;
 
-  // Remate y efecto (Smash)
+  // Remate (Smash), Barra de Poder y Súper Golpe (Pelota Furiosa)
   const MAX_LUNGE_X = 24;
   const SMASH_FORWARD_SPEED = 230;
   const SMASH_FORWARD_DISP = 16;
@@ -42,12 +42,22 @@
   const SMASH_SWIPE_SPEED = 740;
   const SMASH_SWIPE_DIST = 26;
   const SMASH_SWIPE_WINDOW = 0.14;
-  const SMASH_SPEED_MULT = 1.28;
-  const SMASH_MIN_SPEED = 740;
-  const SMASH_MAX_SPEED = 1340;
-  const SMASH_CURVE_BASE = 285;
-  const SMASH_CURVE_COMBO = 345;
+  const SMASH_PADDLE_VY = 360;
+  const SMASH_EDGE_REL = 0.68;
+  const SMASH_SPEED_MULT = 1.26;
+  const SMASH_MIN_SPEED = 720;
+  const SMASH_MAX_SPEED = 1320;
+  const SMASH_CURVE_BASE = 265;
+  const SMASH_CURVE_COMBO = 325;
   const SMASH_EMBER_INTERVAL = 0.032;
+
+  const POWER_PER_SMASH = 34; // 3 Smash -> 100%
+  const FURIOUS_SPEED_MULT = 1.72;
+  const FURIOUS_MIN_SPEED = 1380;
+  const FURIOUS_MAX_SPEED = 1660;
+  const FURIOUS_CURVE_ACCEL = 165;
+  const FURIOUS_EMBER_INTERVAL = 0.016;
+  const SERVE_MAX_ANGLE = 0.30; // asegura >= 95% velocidad horizontal en saques
 
   // Modo Supervivencia
   const SURVIVAL_HITS_PER_LEVEL = 5;
@@ -63,7 +73,18 @@
     unlockedSkins: 'neonpong-unlocked-skins',
     equippedSkin: 'neonpong-equipped-skin',
     tournamentUseSkin: 'neonpong-tournament-use-skin',
+    records: 'neonpong-records',
+    trophies: 'neonpong-trophies',
   };
+
+  // Trofeos desbloqueables
+  const TROPHIES = [
+    { id: 'first_champion', name: 'Primer Campeón', desc: 'Ganá 1 torneo completo', icon: '★', metric: 'tournamentsWon', target: 1 },
+    { id: 'clean_sheet', name: 'Valla Invicta', desc: 'Ganá un partido sin recibir ningún punto', icon: '◆', metric: 'cleanSheet', target: 1 },
+    { id: 'unstoppable', name: 'Imparable', desc: 'Conseguí una racha de 5 victorias seguidas', icon: '⚡', metric: 'bestWinStreak', target: 5 },
+    { id: 'total_fury', name: 'Furia Total', desc: 'Conectá 10 Súper Golpes acumulados', icon: '▲', metric: 'totalSuperShots', target: 10 },
+    { id: 'ping_pong_legend', name: 'Leyenda del Ping Pong', desc: 'Ganá 3 torneos completos', icon: '♛', metric: 'tournamentsWon', target: 3 },
+  ];
 
   const MODES = {
     TOURNAMENT: 'tournament',
@@ -791,11 +812,13 @@
   const TRAIL_ALPHAS = new Float32Array(TRAIL_LENGTH);
   const TRAIL_SIZES = new Float32Array(TRAIL_LENGTH);
   const TRAIL_SMASH_SIZES = new Float32Array(TRAIL_LENGTH);
+  const TRAIL_FURIOUS_SIZES = new Float32Array(TRAIL_LENGTH);
   for (let i = 0; i < TRAIL_LENGTH; i++) {
     const k = (i + 1) / TRAIL_LENGTH;
     TRAIL_ALPHAS[i] = k * 0.45;
     TRAIL_SIZES[i] = BALL_R * 2 * (0.45 + k * 0.75);
     TRAIL_SMASH_SIZES[i] = BALL_R * 2 * (0.6 + k * 1.05);
+    TRAIL_FURIOUS_SIZES[i] = BALL_R * 2 * (0.85 + k * 1.45);
   }
 
   // ==========================================================
@@ -1013,9 +1036,20 @@
     },
 
     smash() {
-      this.tone({ freq: 155, to: 52, dur: 0.17, type: 'triangle', vol: 0.42 });
-      this.tone({ freq: 440, to: 1080, dur: 0.15, type: 'sawtooth', vol: 0.18 });
-      this.tone({ freq: 880, to: 620, dur: 0.11, type: 'square', vol: 0.12, delay: 0.03 });
+      this.tone({ freq: 880, to: 1580, dur: 0.13, type: 'square', vol: 0.18 });
+      this.tone({ freq: 520, to: 1080, dur: 0.11, type: 'sawtooth', vol: 0.14 });
+      this.tone({ freq: 240, to: 110, dur: 0.09, type: 'triangle', vol: 0.28 });
+    },
+
+    powerReady() {
+      this.tone({ freq: 784, dur: 0.09, type: 'triangle', vol: 0.22 });
+      this.tone({ freq: 1175, dur: 0.16, type: 'sine', vol: 0.22, delay: 0.07 });
+    },
+
+    superShot() {
+      this.tone({ freq: 145, to: 44, dur: 0.24, type: 'triangle', vol: 0.48 });
+      this.tone({ freq: 620, to: 1760, dur: 0.22, type: 'sawtooth', vol: 0.20 });
+      this.tone({ freq: 1320, to: 880, dur: 0.18, type: 'square', vol: 0.14, delay: 0.04 });
     },
 
     levelUp() {
@@ -1230,6 +1264,7 @@
     menu: document.getElementById('menu'),
     quickplay: document.getElementById('quickplay'),
     skins: document.getElementById('skins'),
+    trophies: document.getElementById('trophies'),
     tournamentScreen: document.getElementById('tournament-screen'),
     pause: document.getElementById('pause'),
     gameover: document.getElementById('gameover'),
@@ -1238,9 +1273,24 @@
     labelRight: document.getElementById('label-right'),
     scorePlayer: document.getElementById('score-player'),
     scoreAi: document.getElementById('score-ai'),
+    powerP1Wrap: document.getElementById('power-p1-wrap'),
+    powerP1Fill: document.getElementById('power-p1-fill'),
+    powerP1Text: document.getElementById('power-p1-text'),
+    powerP2Wrap: document.getElementById('power-p2-wrap'),
+    powerP2Fill: document.getElementById('power-p2-fill'),
+    powerP2Text: document.getElementById('power-p2-text'),
     diffLabel: document.getElementById('diff-label'),
     targetLabel: document.getElementById('target-label'),
     footerHint: document.getElementById('footer-hint'),
+
+    trophyToast: document.getElementById('trophy-toast'),
+    trophyToastTitle: document.getElementById('trophy-toast-title'),
+    trophiesCountBadge: document.getElementById('trophies-count-badge'),
+    trophiesGrid: document.getElementById('trophies-grid'),
+    recTournaments: document.getElementById('rec-tournaments'),
+    recStreak: document.getElementById('rec-streak'),
+    recRally: document.getElementById('rec-rally'),
+    recSupers: document.getElementById('rec-supers'),
 
     tournamentCtaSub: document.getElementById('tournament-cta-sub'),
     menuStatus: document.getElementById('menu-status'),
@@ -1345,8 +1395,109 @@
     return Number.isFinite(raw) && raw > 0 ? raw : 0;
   }
 
+  function loadRecords(savedTournamentsWon) {
+    const base = {
+      tournamentsWon: Math.max(0, savedTournamentsWon || 0),
+      currentWinStreak: 0,
+      bestWinStreak: 0,
+      maxRally: 0,
+      totalSuperShots: 0,
+    };
+    try {
+      const parsed = JSON.parse(localStorage.getItem(STORAGE_KEYS.records) || 'null');
+      if (!parsed || typeof parsed !== 'object') return base;
+      return {
+        tournamentsWon: Math.max(base.tournamentsWon, parseInt(parsed.tournamentsWon, 10) || 0),
+        currentWinStreak: Math.max(0, parseInt(parsed.currentWinStreak, 10) || 0),
+        bestWinStreak: Math.max(0, parseInt(parsed.bestWinStreak, 10) || 0),
+        maxRally: Math.max(0, parseInt(parsed.maxRally, 10) || 0),
+        totalSuperShots: Math.max(0, parseInt(parsed.totalSuperShots, 10) || 0),
+      };
+    } catch (_) {
+      return base;
+    }
+  }
+
+  function saveRecords() {
+    localStorage.setItem(STORAGE_KEYS.records, JSON.stringify(records));
+  }
+
+  function loadUnlockedTrophies() {
+    const set = new Set();
+    try {
+      const parsed = JSON.parse(localStorage.getItem(STORAGE_KEYS.trophies) || '[]');
+      if (Array.isArray(parsed)) {
+        for (let i = 0; i < parsed.length; i++) {
+          if (TROPHIES.some((t) => t.id === parsed[i])) set.add(parsed[i]);
+        }
+      }
+    } catch (_) { /* ignorar storage corrupto */ }
+    return set;
+  }
+
+  function saveUnlockedTrophies() {
+    localStorage.setItem(STORAGE_KEYS.trophies, JSON.stringify(Array.from(unlockedTrophies)));
+  }
+
   const unlockedSkins = loadUnlockedSkins();
   const tournament = loadTournamentProgress();
+  const records = loadRecords(tournament.tournamentsWon);
+  const unlockedTrophies = loadUnlockedTrophies();
+
+  const trophyToastQueue = [];
+  let trophyToastTimer = 0;
+
+  function showNextTrophyToast() {
+    if (trophyToastTimer || !trophyToastQueue.length || !el.trophyToast) return;
+    const trophy = trophyToastQueue.shift();
+    if (el.trophyToastTitle) el.trophyToastTitle.textContent = trophy.name;
+    el.trophyToast.classList.add('visible');
+    trophyToastTimer = setTimeout(() => {
+      el.trophyToast.classList.remove('visible');
+      trophyToastTimer = setTimeout(() => {
+        trophyToastTimer = 0;
+        showNextTrophyToast();
+      }, 280);
+    }, 2900);
+  }
+
+  function unlockTrophy(trophyId, notify) {
+    if (unlockedTrophies.has(trophyId)) return false;
+    const trophy = TROPHIES.find((t) => t.id === trophyId);
+    if (!trophy) return false;
+    unlockedTrophies.add(trophyId);
+    saveUnlockedTrophies();
+    if (notify) {
+      trophyToastQueue.push(trophy);
+      showNextTrophyToast();
+      Sound.unlock();
+    }
+    return true;
+  }
+
+  function checkTrophies(notify, matchInfo) {
+    let anyNew = false;
+    if (records.tournamentsWon >= 1 && unlockTrophy('first_champion', notify)) anyNew = true;
+    if (matchInfo && matchInfo.cleanSheet && unlockTrophy('clean_sheet', notify)) anyNew = true;
+    if (records.bestWinStreak >= 5 && unlockTrophy('unstoppable', notify)) anyNew = true;
+    if (records.totalSuperShots >= 10 && unlockTrophy('total_fury', notify)) anyNew = true;
+    if (records.tournamentsWon >= 3 && unlockTrophy('ping_pong_legend', notify)) anyNew = true;
+    return anyNew;
+  }
+
+  function recordOnePlayerMatchOutcome(playerWon, opponentScore) {
+    if (playerWon) {
+      records.currentWinStreak += 1;
+      if (records.currentWinStreak > records.bestWinStreak) {
+        records.bestWinStreak = records.currentWinStreak;
+      }
+      saveRecords();
+      checkTrophies(true, { cleanSheet: opponentScore === 0 });
+    } else {
+      records.currentWinStreak = 0;
+      saveRecords();
+    }
+  }
 
   const savedEquipped = localStorage.getItem(STORAGE_KEYS.equippedSkin);
   let equippedSkin = (savedEquipped && unlockedSkins.has(savedEquipped)) ? savedEquipped : 'neon';
@@ -1406,6 +1557,7 @@
     smashSwipeTimer: 0,
     smashSwipeDir: 0,
     smashFlash: 0,
+    power: 0,
   };
 
   const ai = {
@@ -1423,11 +1575,13 @@
     smashSwipeTimer: 0,
     smashSwipeDir: 0,
     smashFlash: 0,
+    power: 0,
     target: H / 2,
     reactTimer: 0,
     thinkTimer: 0,
     errorOffset: 0,
     lastDir: 0,
+    aimDir: 1,
   };
 
   const ball = {
@@ -1438,11 +1592,12 @@
     speed: BALL_START_SPEED,
     baseSpeed: BALL_START_SPEED,
     isSmash: false,
+    isFurious: false,
     curve: 0,
     emberTimer: 0,
   };
 
-  // Ring buffer de estela sin asignaciones por frame
+  // Ring buffer de estela sin asignaciones por frame (0: normal, 1: smash, 2: furiosa)
   const trailX = new Float32Array(TRAIL_LENGTH);
   const trailY = new Float32Array(TRAIL_LENGTH);
   const trailSmash = new Uint8Array(TRAIL_LENGTH);
@@ -1454,10 +1609,10 @@
     trailCount = 0;
   }
 
-  function pushTrail(x, y, isSmash) {
+  function pushTrail(x, y, stateCode) {
     trailX[trailHead] = x;
     trailY[trailHead] = y;
-    trailSmash[trailHead] = isSmash ? 1 : 0;
+    trailSmash[trailHead] = stateCode;
     trailHead = (trailHead + 1) % TRAIL_LENGTH;
     if (trailCount < TRAIL_LENGTH) trailCount++;
   }
@@ -1651,14 +1806,38 @@
     el.pauseBtn.classList.toggle('hidden', !show);
   }
 
+  function updatePowerBars() {
+    const activeMatch = game.state === 'playing' || game.state === 'countdown' || game.state === 'paused';
+    const showP1 = activeMatch;
+    const showP2 = activeMatch && game.mode === MODES.TWO_P;
+
+    if (el.powerP1Wrap) {
+      el.powerP1Wrap.classList.toggle('hidden', !showP1);
+      const p1Pct = clamp(Math.round(player.power), 0, 100);
+      el.powerP1Fill.style.width = `${p1Pct}%`;
+      el.powerP1Text.textContent = p1Pct >= 100 ? 'MAX' : `${p1Pct}%`;
+      el.powerP1Wrap.classList.toggle('ready', p1Pct >= 100);
+    }
+
+    if (el.powerP2Wrap) {
+      el.powerP2Wrap.classList.toggle('hidden', !showP2);
+      const p2Pct = clamp(Math.round(ai.power), 0, 100);
+      el.powerP2Fill.style.width = `${p2Pct}%`;
+      el.powerP2Text.textContent = p2Pct >= 100 ? 'MAX' : `${p2Pct}%`;
+      el.powerP2Wrap.classList.toggle('ready', p2Pct >= 100);
+    }
+  }
+
   function setOverlay(name) {
     el.menu.classList.toggle('visible', name === 'menu');
     el.quickplay.classList.toggle('visible', name === 'quickplay');
     el.skins.classList.toggle('visible', name === 'skins');
+    if (el.trophies) el.trophies.classList.toggle('visible', name === 'trophies');
     el.tournamentScreen.classList.toggle('visible', name === 'intermission');
     el.pause.classList.toggle('visible', name === 'pause');
     el.gameover.classList.toggle('visible', name === 'gameover');
     updatePauseBtn();
+    updatePowerBars();
   }
 
   function bumpElement(node) {
@@ -1732,7 +1911,7 @@
     const skinObj = SKINS[equippedSkin] || SKINS.neon;
     const recordText = game.survivalBest > 0 ? ` · Récord Sup.: ${game.survivalBest}` : '';
     el.menuStatus.textContent =
-      `Arena equipada: ${skinObj.name} · Skins: ${unlockedSkins.size}/${SKIN_ORDER.length}${recordText}`;
+      `Arena: ${skinObj.name} · Skins: ${unlockedSkins.size}/${SKIN_ORDER.length} · Trofeos: ${unlockedTrophies.size}/${TROPHIES.length}${recordText}`;
     el.quickplaySubtitle.textContent =
       `Primero a ${QUICK_WIN_SCORE} puntos · Arena: ${skinObj.name}`;
 
@@ -1900,6 +2079,74 @@
     renderStatic();
   }
 
+  function renderTrophiesPanel() {
+    if (el.recTournaments) el.recTournaments.textContent = records.tournamentsWon;
+    if (el.recStreak) el.recStreak.textContent = records.bestWinStreak;
+    if (el.recRally) el.recRally.textContent = records.maxRally;
+    if (el.recSupers) el.recSupers.textContent = records.totalSuperShots;
+    if (el.trophiesCountBadge) {
+      el.trophiesCountBadge.textContent = `${unlockedTrophies.size} / ${TROPHIES.length}`;
+    }
+    if (!el.trophiesGrid) return;
+    el.trophiesGrid.innerHTML = '';
+
+    for (let i = 0; i < TROPHIES.length; i++) {
+      const t = TROPHIES[i];
+      const unlocked = unlockedTrophies.has(t.id);
+
+      const card = document.createElement('div');
+      card.className = 'trophy-card ' + (unlocked ? 'unlocked' : 'locked');
+      card.dataset.trophy = t.id;
+      card.setAttribute('role', 'listitem');
+
+      const medal = document.createElement('div');
+      medal.className = 'trophy-medal';
+      medal.textContent = unlocked ? t.icon : '?';
+
+      const info = document.createElement('div');
+      info.className = 'trophy-info';
+
+      const top = document.createElement('div');
+      top.className = 'trophy-top';
+
+      const nameEl = document.createElement('span');
+      nameEl.className = 'trophy-name';
+      nameEl.textContent = t.name;
+
+      const tagEl = document.createElement('span');
+      tagEl.className = 'skin-tag ' + (unlocked ? 'equipped' : 'locked');
+      if (unlocked) {
+        tagEl.textContent = 'DESBLOQUEADO';
+      } else if (t.metric !== 'cleanSheet') {
+        const cur = Math.min(records[t.metric] || 0, t.target);
+        tagEl.textContent = `${cur}/${t.target}`;
+      } else {
+        tagEl.textContent = 'BLOQUEADO';
+      }
+
+      top.appendChild(nameEl);
+      top.appendChild(tagEl);
+
+      const desc = document.createElement('p');
+      desc.className = 'trophy-desc';
+      desc.textContent = t.desc;
+
+      info.appendChild(top);
+      info.appendChild(desc);
+      card.appendChild(medal);
+      card.appendChild(info);
+      el.trophiesGrid.appendChild(card);
+    }
+  }
+
+  function openTrophiesMenu() {
+    game.state = 'trophies';
+    applySkin(equippedSkin);
+    renderTrophiesPanel();
+    setOverlay('trophies');
+    renderStatic();
+  }
+
   function setDifficulty(diff) {
     game.difficulty = DIFFICULTY[diff] ? diff : 'normal';
     el.diffBtns.forEach((b) => {
@@ -1935,16 +2182,35 @@
     p.smashFlash = 0;
   }
 
-  function resetPaddles() {
-    resetPaddle(player);
-    resetPaddle(ai);
-    ai.target = H / 2;
+  function resetAIForServe(servingTowardAI) {
     ai.reactTimer = 0;
     ai.thinkTimer = 0;
     ai.errorOffset = 0;
     ai.lastDir = 0;
+    ai.aimDir = Math.random() < 0.5 ? -1 : 1;
+
+    if (servingTowardAI && ball.vx > 0 && game.mode !== MODES.TWO_P) {
+      const cfg = getActiveAIConfig();
+      ai.lastDir = 1;
+      ai.reactTimer = 0;
+      ai.thinkTimer = 0.07;
+      ai.errorOffset = rand(-1, 1) * Math.min(cfg.error * 0.25, 14);
+      const predicted = predictBallY(ai.x - BALL_R);
+      ai.target = clamp(predicted + ai.errorOffset, ai.h * 0.5, H - ai.h * 0.5);
+    } else {
+      ai.target = H / 2;
+    }
+  }
+
+  function resetPaddles() {
+    resetPaddle(player);
+    resetPaddle(ai);
+    player.power = 0;
+    ai.power = 0;
+    resetAIForServe(false);
     resetControlState(controls[0]);
     resetControlState(controls[1]);
+    updatePowerBars();
   }
 
   function resetBall(preserveSurvivalSpeed) {
@@ -1957,11 +2223,13 @@
     ball.baseSpeed = startSpeed;
     ball.speed = startSpeed;
     ball.isSmash = false;
+    ball.isFurious = false;
     ball.curve = 0;
     ball.emberTimer = 0;
     clearTrail();
     game.rally = 0;
     game.shake = 0;
+    resetAIForServe(false);
   }
 
   function startMatch(modeOverride) {
@@ -2018,14 +2286,17 @@
   }
 
   function serve() {
-    const angle = rand(-0.35, 0.35);
+    const angle = rand(-SERVE_MAX_ANGLE, SERVE_MAX_ANGLE);
     ball.speed = ball.baseSpeed;
     ball.isSmash = false;
+    ball.isFurious = false;
     ball.curve = 0;
     ball.vx = game.serveDir * Math.cos(angle) * ball.speed;
     ball.vy = Math.sin(angle) * ball.speed;
     game.state = 'playing';
+    resetAIForServe(ball.vx > 0);
     updatePauseBtn();
+    updatePowerBars();
   }
 
   function togglePause() {
@@ -2157,6 +2428,7 @@
         // Avanza a la siguiente ronda y muestra pantalla intermedia
         tournament.currentRound = round.index + 1;
         saveTournamentProgress();
+        recordOnePlayerMatchOutcome(true, game.scores.ai);
         gameoverSoundTimer = setTimeout(() => {
           gameoverSoundTimer = 0;
           if (unlockedNow) Sound.unlock();
@@ -2171,6 +2443,8 @@
       tournament.currentRound = 0;
       tournament.completedRounds = [false, false, false, false];
       saveTournamentProgress();
+      records.tournamentsWon = Math.max(records.tournamentsWon + 1, tournament.tournamentsWon);
+      recordOnePlayerMatchOutcome(true, game.scores.ai);
       game.tournamentChampionRun = true;
 
       game.state = 'gameover';
@@ -2210,6 +2484,7 @@
     }
 
     // Derrota en una ronda del Torneo: permite reintentar esa misma ronda o empezar de cero
+    recordOnePlayerMatchOutcome(false, game.scores.ai);
     game.state = 'gameover';
     clearActiveTouches();
     clearCallouts();
@@ -2255,6 +2530,7 @@
       el.resultScore.textContent = `${game.scores.player} — ${game.scores.ai}`;
       gameoverSoundTimer = setTimeout(() => { gameoverSoundTimer = 0; Sound.win(); }, 320);
     } else {
+      recordOnePlayerMatchOutcome(playerWon, game.scores.ai);
       el.resultTitle.textContent = playerWon ? '¡VICTORIA!' : 'DERROTA';
       el.resultTitle.className = 'overlay-title ' + (playerWon ? 'win' : 'lose');
       el.resultScore.textContent = `${game.scores.player} — ${game.scores.ai}`;
@@ -2370,38 +2646,85 @@
   function hitPaddle(p, dir) {
     const rel = clamp((ball.y - (p.y + p.h / 2)) / (p.h / 2 + BALL_R), -1, 1);
     const isHuman = (p === player) || (game.mode === MODES.TWO_P);
+    const isFuriousTrigger = isHuman && p.power >= 100;
     const isForwardSmash = isHuman && p.smashForwardTimer > 0;
     const isSwipeSmash = isHuman && p.smashSwipeTimer > 0;
-    const isSmash = isForwardSmash || isSwipeSmash;
+    const isVelocitySmash = isHuman && Math.abs(p.vy) >= SMASH_PADDLE_VY;
+    const isEdgeSmash = isHuman && Math.abs(rel) >= SMASH_EDGE_REL;
+    const isSmash = !isFuriousTrigger && (isForwardSmash || isSwipeSmash || isVelocitySmash || isEdgeSmash);
 
     ball.baseSpeed = Math.min(ball.baseSpeed * BALL_SPEEDUP, BALL_MAX_SPEED);
 
-    const maxAngle = isSmash ? MAX_BOUNCE_ANGLE * 0.85 : MAX_BOUNCE_ANGLE;
+    const maxAngle = isFuriousTrigger
+      ? MAX_BOUNCE_ANGLE * 0.72
+      : isSmash
+        ? MAX_BOUNCE_ANGLE * 0.85
+        : MAX_BOUNCE_ANGLE;
     const angle = rel * maxAngle;
 
-    if (isSmash) {
+    let curveDir = 0;
+    if (isSwipeSmash && p.smashSwipeDir !== 0) {
+      curveDir = p.smashSwipeDir;
+    } else if (Math.abs(p.vy) > 90) {
+      curveDir = Math.sign(p.vy);
+    } else if (Math.abs(rel) > 0.12) {
+      curveDir = Math.sign(rel);
+    } else {
+      curveDir = ball.y > H / 2 ? -1 : 1;
+    }
+
+    if (isFuriousTrigger) {
+      // Súper Golpe: Pelota Furiosa (consumo total de la barra al 0%)
+      p.power = 0;
+      updatePowerBars();
+
+      ball.speed = clamp(ball.baseSpeed * FURIOUS_SPEED_MULT, FURIOUS_MIN_SPEED, FURIOUS_MAX_SPEED);
+      ball.isFurious = true;
+      ball.isSmash = true;
+      ball.emberTimer = 0;
+      ball.curve = curveDir * FURIOUS_CURVE_ACCEL;
+
+      p.smashForwardTimer = 0;
+      p.smashSwipeTimer = 0;
+      p.smashFlash = 1;
+
+      if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+        try { navigator.vibrate(40); } catch (_) { /* ignorar si no soportado */ }
+      }
+      records.totalSuperShots += 1;
+      saveRecords();
+      checkTrophies(true);
+    } else if (isSmash) {
       ball.speed = Math.min(Math.max(ball.baseSpeed * SMASH_SPEED_MULT, SMASH_MIN_SPEED), SMASH_MAX_SPEED);
+      ball.isFurious = false;
       ball.isSmash = true;
       ball.emberTimer = 0;
 
-      let curveDir = 0;
-      if (isSwipeSmash && p.smashSwipeDir !== 0) {
-        curveDir = p.smashSwipeDir;
-      } else if (Math.abs(p.vy) > 90) {
-        curveDir = Math.sign(p.vy);
-      } else if (Math.abs(rel) > 0.12) {
-        curveDir = Math.sign(rel);
-      } else {
-        curveDir = ball.y > H / 2 ? -1 : 1;
-      }
       const curveMag = (isForwardSmash && isSwipeSmash) ? SMASH_CURVE_COMBO : SMASH_CURVE_BASE;
       ball.curve = curveDir * curveMag;
 
       p.smashForwardTimer = 0;
       p.smashSwipeTimer = 0;
       p.smashFlash = 1;
+
+      // Cargar Barra de Poder (+34% por Smash -> 3 golpes = 100%)
+      const prevPower = p.power;
+      p.power = Math.min(100, p.power + POWER_PER_SMASH);
+      updatePowerBars();
+      if (prevPower < 100 && p.power >= 100) {
+        Sound.powerReady();
+        spawnCallout(
+          '¡PODER 100%!',
+          clamp(p.x + dir * 64, 90, W - 90),
+          clamp(ball.y + 28, 44, H - 30),
+          '#fde047',
+          0.85
+        );
+      }
     } else {
+      // Golpe normal o devolución del rival: restaura velocidad normal
       ball.speed = ball.baseSpeed;
+      ball.isFurious = false;
       ball.isSmash = false;
       ball.curve = 0;
     }
@@ -2411,15 +2734,31 @@
     ball.x = dir > 0 ? p.x + p.w + BALL_R : p.x - BALL_R;
 
     game.rally++;
+    if (game.rally > records.maxRally) {
+      records.maxRally = game.rally;
+      saveRecords();
+    }
     p.flash = 1;
 
-    if (isSmash) {
+    if (isFuriousTrigger) {
+      Sound.superShot();
+      spawnSparks(ball.x, ball.y, dir, 18, COLOR_IDX_SMASH_ORANGE, 1.7);
+      spawnSparks(ball.x, ball.y, dir, 14, COLOR_IDX_SMASH_RED, 1.4);
+      game.shake = Math.max(game.shake, 11.5);
+      spawnCallout(
+        '¡PELOTA FURIOSA!',
+        clamp(ball.x + dir * 82, 110, W - 110),
+        clamp(ball.y - 30, 44, H - 30),
+        '#fef08a',
+        0.85
+      );
+    } else if (isSmash) {
       Sound.smash();
       spawnSparks(ball.x, ball.y, dir, 14, COLOR_IDX_SMASH_ORANGE, 1.45);
       spawnSparks(ball.x, ball.y, dir, 8, COLOR_IDX_SMASH_RED, 1.15);
       game.shake = Math.max(game.shake, 7.5);
       spawnCallout(
-        '¡REMATE!',
+        '¡SMASH!',
         clamp(ball.x + dir * 56, 84, W - 84),
         clamp(ball.y - 28, 44, H - 30),
         '#fb923c',
@@ -2491,17 +2830,17 @@
       }
     }
 
-    if (ball.isSmash) {
+    if (ball.isFurious || ball.isSmash) {
       ball.emberTimer -= dt;
       if (ball.emberTimer <= 0) {
-        ball.emberTimer = SMASH_EMBER_INTERVAL;
+        ball.emberTimer = ball.isFurious ? FURIOUS_EMBER_INTERVAL : SMASH_EMBER_INTERVAL;
         spawnSparks(
           ball.x,
           ball.y,
           ball.vx >= 0 ? -1 : 1,
-          1,
-          Math.random() < 0.6 ? COLOR_IDX_SMASH_ORANGE : COLOR_IDX_SMASH_RED,
-          0.35
+          ball.isFurious ? 2 : 1,
+          Math.random() < 0.55 ? COLOR_IDX_SMASH_ORANGE : COLOR_IDX_SMASH_RED,
+          ball.isFurious ? 0.65 : 0.35
         );
       }
     }
@@ -2588,15 +2927,25 @@
 
     if (game.state === 'playing') {
       const dir = Math.sign(ball.vx);
+      const isServeBall = game.rally === 0;
 
       if (dir !== ai.lastDir) {
         ai.lastDir = dir;
-        ai.reactTimer = cfg.reaction * rand(0.7, 1.35);
         ai.thinkTimer = 0;
-        const speedFactor = 1 + ((ball.speed - BALL_START_SPEED) / BALL_START_SPEED) * 0.9;
-        ai.errorOffset = rand(-1, 1) * cfg.error * speedFactor;
-        const mistakeChance = cfg.mistakeChance !== undefined ? cfg.mistakeChance : 0.08;
-        if (Math.random() < mistakeChance) ai.errorOffset *= 1.75;
+        // Elección táctica independiente (desvinculada del movimiento/toque del jugador humano)
+        ai.aimDir = Math.random() < 0.5 ? -1 : 1;
+
+        if (isServeBall && dir > 0) {
+          // En el saque hacia la IA reacciona de inmediato con margen seguro para no hacerse auto-punto
+          ai.reactTimer = 0;
+          ai.errorOffset = rand(-1, 1) * Math.min(cfg.error * 0.25, 14);
+        } else {
+          ai.reactTimer = cfg.reaction * rand(0.7, 1.35);
+          const speedFactor = 1 + ((ball.speed - BALL_START_SPEED) / BALL_START_SPEED) * 0.9;
+          ai.errorOffset = rand(-1, 1) * cfg.error * speedFactor;
+          const mistakeChance = cfg.mistakeChance !== undefined ? cfg.mistakeChance : 0.08;
+          if (Math.random() < mistakeChance) ai.errorOffset *= 1.75;
+        }
       }
 
       if (ai.reactTimer > 0) {
@@ -2604,30 +2953,28 @@
       } else {
         ai.thinkTimer -= dt;
         if (ai.thinkTimer <= 0) {
-          ai.thinkTimer = cfg.reaction * 0.6;
+          ai.thinkTimer = isServeBall ? 0.06 : cfg.reaction * 0.6;
           if (dir > 0) {
-            const distFrac = clamp((ai.x - ball.x) / W, 0, 1);
-            const err = ai.errorOffset * (0.55 + 0.45 * distFrac);
             const targetX = ai.x - BALL_R;
             const exactY = predictBallY(targetX);
-            const wallAnt = cfg.wallAnticipation !== undefined ? cfg.wallAnticipation : 1;
+            if (isServeBall) {
+              ai.target = clamp(exactY + ai.errorOffset, ai.h * 0.5, H - ai.h * 0.5);
+            } else {
+              const distFrac = clamp((ai.x - ball.x) / W, 0, 1);
+              const err = ai.errorOffset * (0.55 + 0.45 * distFrac);
+              const wallAnt = cfg.wallAnticipation !== undefined ? cfg.wallAnticipation : 1;
 
-            let predictedY = exactY;
-            if (wallAnt < 1 && ball.vx > 0) {
-              const t = Math.max(0, (targetX - ball.x) / ball.vx);
-              const naiveY = clamp(ball.y + ball.vy * t, BALL_R, H - BALL_R);
-              predictedY = naiveY + (exactY - naiveY) * wallAnt;
+              let predictedY = exactY;
+              if (wallAnt < 1 && ball.vx > 0) {
+                const t = Math.max(0, (targetX - ball.x) / ball.vx);
+                const naiveY = clamp(ball.y + ball.vy * t, BALL_R, H - BALL_R);
+                predictedY = naiveY + (exactY - naiveY) * wallAnt;
+              }
+
+              // En rondas tácticas/avanzadas busca golpear con el borde para abrir ángulos
+              const edgeOffset = cfg.edgeAim > 0 ? -ai.aimDir * (ai.h * 0.34) * cfg.edgeAim : 0;
+              ai.target = clamp(predictedY + edgeOffset + err, ai.h * 0.5, H - ai.h * 0.5);
             }
-
-            // En rondas tácticas/avanzadas busca golpear con el borde para abrir ángulos
-            let edgeOffset = 0;
-            if (cfg.edgeAim && cfg.edgeAim > 0) {
-              const playerCenter = player.y + player.h * 0.5;
-              const openDir = playerCenter < H * 0.5 ? 1 : -1;
-              edgeOffset = -openDir * (ai.h * 0.34) * cfg.edgeAim;
-            }
-
-            ai.target = clamp(predictedY + edgeOffset + err, ai.h * 0.5, H - ai.h * 0.5);
           } else {
             ai.target = H / 2 + (ball.y - H / 2) * 0.3;
           }
@@ -2678,7 +3025,7 @@
       }
       updateBall(dt);
       if (game.state === 'playing') {
-        pushTrail(ball.x, ball.y, ball.isSmash);
+        pushTrail(ball.x, ball.y, ball.isFurious ? 2 : ball.isSmash ? 1 : 0);
       }
     }
 
@@ -2719,11 +3066,19 @@
       for (let i = 0; i < trailCount; i++) {
         const idx = (trailHead - trailCount + i + TRAIL_LENGTH) % TRAIL_LENGTH;
         const slot = startSlot + i;
-        const isSmashPoint = trailSmash[idx] === 1;
-        const size = isSmashPoint ? TRAIL_SMASH_SIZES[slot] : TRAIL_SIZES[slot];
-        ctx.globalAlpha = isSmashPoint ? TRAIL_ALPHAS[slot] * 1.35 : TRAIL_ALPHAS[slot];
+        const stateCode = trailSmash[idx];
+        const size = stateCode === 2
+          ? TRAIL_FURIOUS_SIZES[slot]
+          : stateCode === 1
+            ? TRAIL_SMASH_SIZES[slot]
+            : TRAIL_SIZES[slot];
+        ctx.globalAlpha = stateCode === 2
+          ? Math.min(0.92, TRAIL_ALPHAS[slot] * 1.85)
+          : stateCode === 1
+            ? TRAIL_ALPHAS[slot] * 1.35
+            : TRAIL_ALPHAS[slot];
         ctx.drawImage(
-          isSmashPoint ? activeSprites.trailDotSmash : activeSprites.trailDot,
+          stateCode > 0 ? activeSprites.trailDotSmash : activeSprites.trailDot,
           trailX[idx] - size * 0.5,
           trailY[idx] - size * 0.5,
           size,
@@ -2733,7 +3088,30 @@
       ctx.globalAlpha = 1;
     }
 
-    if (ball.isSmash) {
+    if (ball.isFurious) {
+      // Resplandor rojo/naranja con círculos concéntricos semitransparentes (cero shadowBlur)
+      const bx = ball.x;
+      const by = ball.y;
+      ctx.fillStyle = '#ef4444';
+      ctx.globalAlpha = 0.16;
+      ctx.beginPath(); ctx.arc(bx, by, 34, 0, Math.PI * 2); ctx.fill();
+
+      ctx.globalAlpha = 0.30;
+      ctx.beginPath(); ctx.arc(bx, by, 24, 0, Math.PI * 2); ctx.fill();
+
+      ctx.fillStyle = '#f97316';
+      ctx.globalAlpha = 0.58;
+      ctx.beginPath(); ctx.arc(bx, by, 16.5, 0, Math.PI * 2); ctx.fill();
+
+      ctx.fillStyle = '#fdba74';
+      ctx.globalAlpha = 0.88;
+      ctx.beginPath(); ctx.arc(bx, by, 11.5, 0, Math.PI * 2); ctx.fill();
+
+      // Núcleo blanco incandescente
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath(); ctx.arc(bx, by, BALL_R + 1.5, 0, Math.PI * 2); ctx.fill();
+    } else if (ball.isSmash) {
       ctx.drawImage(
         activeSprites.ballSmash,
         ball.x - BALL_SMASH_SPRITE_HALF,
@@ -2905,7 +3283,7 @@
     } else if (e.code === 'Space' || e.code === 'KeyP' || e.code === 'Escape') {
       e.preventDefault();
       if (!e.repeat) {
-        if (game.state === 'quickplay' || game.state === 'skins' || game.state === 'intermission') {
+        if (game.state === 'quickplay' || game.state === 'skins' || game.state === 'trophies' || game.state === 'intermission') {
           goToMenu();
         } else {
           togglePause();
@@ -3225,6 +3603,18 @@
     openSkinsMenu();
   });
 
+  document.getElementById('trophies-open-btn').addEventListener('click', () => {
+    unlockAudio();
+    Sound.click();
+    openTrophiesMenu();
+  });
+
+  document.getElementById('trophies-back-btn').addEventListener('click', () => {
+    unlockAudio();
+    Sound.click();
+    goToMenu();
+  });
+
   el.diffBtns.forEach((b) => b.addEventListener('click', () => {
     unlockAudio();
     setDifficulty(b.dataset.diff);
@@ -3365,6 +3755,7 @@
   // ==========================================================
   const savedDiff = localStorage.getItem(STORAGE_KEYS.difficulty);
   setDifficulty(DIFFICULTY[savedDiff] ? savedDiff : 'normal');
+  checkTrophies(false);
   applySkin(equippedSkin);
   renderAudioButtons();
   updatePauseBtn();
@@ -3377,6 +3768,7 @@
   window.__pong = {
     game,
     tournament,
+    records,
     ball,
     player,
     ai,
@@ -3385,6 +3777,7 @@
     MODES,
     SKINS,
     TOURNAMENT_ROUNDS,
+    TROPHIES,
     MUSIC_TRACKS,
     Music,
     Sound,
@@ -3392,5 +3785,6 @@
     getActiveSkin: () => activeSkinId,
     getUnlockedSkins: () => Array.from(unlockedSkins),
     getEquippedSkin: () => equippedSkin,
+    getUnlockedTrophies: () => Array.from(unlockedTrophies),
   };
 })();

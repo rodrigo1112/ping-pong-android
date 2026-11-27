@@ -10,12 +10,13 @@
   --accent-3-bright: #c4b5fd;
   --orange: #fb923c;
   --orange-bright: #fdba74;
+  --fury: #ef4444;
   --text: #e2e8f0;
   --text-dark: #0b0f19;
   --muted: #8b9bb4;
   --stage-border: rgba(34, 211, 238, 0.55);
   --stage-outline: rgba(34, 211, 238, 0.14);
-  --hud-space: 86px;
+  --hud-space: 92px;
 }
 
 /* ---------- Temas visuales por Cancha / Skin ---------- */
@@ -41,6 +42,7 @@ body[data-theme="retro89"] {
 
 body[data-theme="retro89"] #hud .score .label,
 body[data-theme="retro89"] #hud .hud-center .target,
+body[data-theme="retro89"] #hud .power-text,
 body[data-theme="retro89"] .hint {
   color: #306230;
   font-weight: 700;
@@ -50,6 +52,22 @@ body[data-theme="retro89"] #hud .score.player .value,
 body[data-theme="retro89"] #hud .score.ai .value,
 body[data-theme="retro89"] #hud #diff-label {
   color: #0f380f;
+}
+
+body[data-theme="retro89"] .power-track {
+  background: rgba(15, 56, 15, 0.22);
+  border-color: #0f380f;
+  border-radius: 2px;
+}
+body[data-theme="retro89"] .power-fill.p1,
+body[data-theme="retro89"] .power-fill.p2 {
+  background: #0f380f;
+}
+body[data-theme="retro89"] .power-wrap.ready .power-fill {
+  background: #dc2626;
+}
+body[data-theme="retro89"] .power-wrap.ready .power-text {
+  color: #7f1d1d;
 }
 
 body[data-theme="retro89"] .icon-btn {
@@ -68,7 +86,9 @@ body[data-theme="retro89"] .primary-btn,
 body[data-theme="retro89"] .secondary-btn,
 body[data-theme="retro89"] .mode-btn,
 body[data-theme="retro89"] .diff-btn,
-body[data-theme="retro89"] .skin-card {
+body[data-theme="retro89"] .skin-card,
+body[data-theme="retro89"] .trophy-card,
+body[data-theme="retro89"] .record-stat {
   border-radius: 4px;
 }
 
@@ -136,7 +156,7 @@ html, body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 6px;
   padding:
     max(6px, env(safe-area-inset-top))
     max(10px, env(safe-area-inset-right))
@@ -147,7 +167,7 @@ html, body {
   -webkit-user-select: none;
 }
 
-/* ---------- Marcador y botones de audio ---------- */
+/* ---------- Marcador, Barras de Poder y botones de audio ---------- */
 #hud {
   position: relative;
   width: min(
@@ -161,12 +181,18 @@ html, body {
   flex-shrink: 0;
 }
 
+.score-col {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.score-col.player { align-items: flex-end; padding-right: 16px; }
+.score-col.ai { align-items: flex-start; padding-left: 16px; }
+
 .score { display: flex; align-items: baseline; gap: 10px; }
-.score.player { justify-content: flex-end; padding-right: 16px; }
-.score.ai { justify-content: flex-start; padding-left: 16px; }
 
 .score .label {
-  font-size: 0.76rem;
+  font-size: 0.74rem;
   letter-spacing: 0.18em;
   color: var(--muted);
   white-space: nowrap;
@@ -174,7 +200,7 @@ html, body {
 
 .score .value {
   font-family: "Courier New", ui-monospace, monospace;
-  font-size: 2.25rem;
+  font-size: 2.1rem;
   font-weight: 700;
   line-height: 1;
   display: inline-block;
@@ -184,6 +210,61 @@ html, body {
 .score.ai .value { color: var(--accent-2-bright); }
 .score .value.record-live { color: var(--orange-bright); }
 .score .value.bump { animation: bump 0.32s ease; }
+
+/* Barra de Poder (Súper Golpe) */
+.power-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: min(132px, 100%);
+}
+.power-track {
+  flex: 1;
+  height: 7px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.2);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  overflow: hidden;
+}
+.power-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+  transition: width 0.22s ease-out;
+}
+.power-fill.p1 {
+  background: linear-gradient(90deg, var(--accent-1), var(--accent-1-bright));
+}
+.power-fill.p2 {
+  background: linear-gradient(90deg, var(--accent-2), var(--accent-2-bright));
+}
+.power-text {
+  font-family: "Courier New", ui-monospace, monospace;
+  font-size: 0.64rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  min-width: 30px;
+  text-align: right;
+}
+.power-wrap.right .power-text {
+  text-align: left;
+}
+.power-wrap.ready .power-track {
+  border-color: var(--orange-bright);
+}
+.power-wrap.ready .power-fill {
+  background: linear-gradient(90deg, #f97316, #ef4444, #fde047);
+  animation: powerPulse 0.65s ease-in-out infinite alternate;
+}
+.power-wrap.ready .power-text {
+  color: var(--orange-bright);
+}
+
+@keyframes powerPulse {
+  from { opacity: 0.8; }
+  to { opacity: 1; }
+}
 
 @keyframes bump {
   0% { transform: scale(1); }
@@ -196,8 +277,8 @@ html, body {
   flex-direction: column;
   align-items: center;
   gap: 2px;
-  font-size: 0.66rem;
-  letter-spacing: 0.18em;
+  font-size: 0.65rem;
+  letter-spacing: 0.16em;
   text-align: center;
 }
 #diff-label { color: var(--accent-3-bright); font-weight: 700; white-space: nowrap; }
@@ -287,6 +368,59 @@ html, body {
   -webkit-user-select: none;
 }
 
+/* ---------- Toast flotante de Trofeo desbloqueado ---------- */
+.trophy-toast {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translate(-50%, -18px);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  background: var(--panel);
+  border: 2px solid var(--orange-bright);
+  color: var(--text);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.24s ease, transform 0.24s ease;
+}
+.trophy-toast.visible {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+.toast-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--orange-bright);
+  color: var(--text-dark);
+  font-size: 0.95rem;
+  font-weight: 900;
+  flex-shrink: 0;
+}
+.toast-body {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+}
+.toast-kicker {
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  color: var(--orange-bright);
+}
+.toast-title {
+  font-size: 0.86rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: var(--text);
+}
+
 /* ---------- Overlays (sin backdrop-filter blur) ---------- */
 .overlay {
   position: absolute;
@@ -295,7 +429,7 @@ html, body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: clamp(8px, 2.4vh, 18px);
+  gap: clamp(7px, 2.2vh, 15px);
   padding: 12px 16px;
   background: var(--panel);
   contain: layout style paint;
@@ -309,7 +443,7 @@ html, body {
 .icon-btn.hidden { display: grid !important; opacity: 0; pointer-events: none; }
 
 .title {
-  font-size: clamp(1.75rem, 7.2vh, 4.1rem);
+  font-size: clamp(1.65rem, 6.8vh, 3.9rem);
   font-weight: 900;
   letter-spacing: 0.12em;
   line-height: 1;
@@ -322,7 +456,7 @@ html, body {
 }
 
 .overlay-title {
-  font-size: clamp(1.55rem, 6.4vh, 3.3rem);
+  font-size: clamp(1.5rem, 6.2vh, 3.2rem);
   font-weight: 900;
   letter-spacing: 0.13em;
   line-height: 1.05;
@@ -330,8 +464,8 @@ html, body {
   text-align: center;
 }
 .overlay-title.compact-title {
-  font-size: clamp(1.2rem, 4.4vh, 2rem);
-  letter-spacing: 0.12em;
+  font-size: clamp(1.12rem, 4.1vh, 1.85rem);
+  letter-spacing: 0.1em;
 }
 .overlay-title.win { color: var(--accent-1-bright); }
 .overlay-title.lose { color: var(--accent-2-bright); }
@@ -340,7 +474,7 @@ html, body {
 .subtitle {
   color: var(--muted);
   letter-spacing: 0.04em;
-  font-size: clamp(0.74rem, 2.1vh, 0.94rem);
+  font-size: clamp(0.72rem, 2vh, 0.92rem);
   text-align: center;
 }
 
@@ -355,9 +489,9 @@ html, body {
 /* ---------- Botón principal Modo Torneo ---------- */
 .primary-btn {
   min-width: 164px;
-  padding: 11px 26px;
+  padding: 10px 24px;
   font: inherit;
-  font-size: 1rem;
+  font-size: 0.98rem;
   font-weight: 800;
   letter-spacing: 0.16em;
   color: var(--text-dark);
@@ -378,19 +512,19 @@ html, body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 3px;
-  min-width: min(320px, 82%);
-  padding: 12px 26px;
+  gap: 2px;
+  min-width: min(310px, 80%);
+  padding: 10px 24px;
 }
 .tournament-cta .cta-main {
-  font-size: clamp(1rem, 3.2vh, 1.32rem);
+  font-size: clamp(0.98rem, 3.1vh, 1.28rem);
   font-weight: 900;
   letter-spacing: 0.18em;
 }
 .tournament-cta .cta-sub {
-  font-size: clamp(0.68rem, 1.9vh, 0.8rem);
+  font-size: clamp(0.66rem, 1.8vh, 0.78rem);
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.07em;
   opacity: 0.85;
 }
 
@@ -406,12 +540,12 @@ html, body {
 .mode-btn,
 .diff-btn,
 .secondary-btn {
-  min-width: 102px;
+  min-width: 100px;
   padding: 8px 13px;
   font: inherit;
-  font-size: 0.86rem;
+  font-size: 0.84rem;
   font-weight: 700;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.05em;
   color: var(--text);
   background: rgba(167, 139, 250, 0.12);
   border: 2px solid rgba(167, 139, 250, 0.45);
@@ -431,6 +565,10 @@ html, body {
 .mode-btn.mode-skins {
   border-color: var(--stage-border);
   background: rgba(34, 211, 238, 0.10);
+}
+.mode-btn.mode-trophies {
+  border-color: rgba(253, 186, 116, 0.62);
+  background: rgba(251, 146, 60, 0.13);
 }
 .mode-btn:active,
 .diff-btn:active,
@@ -459,11 +597,12 @@ html, body {
   align-items: center;
 }
 
-/* ---------- Selector de Canchas / Skins ---------- */
-.skins-overlay {
+/* ---------- Selector de Canchas / Skins y Panel de Trofeos ---------- */
+.skins-overlay,
+.trophies-overlay {
   justify-content: flex-start;
   padding: 12px 16px;
-  gap: 10px;
+  gap: 9px;
 }
 
 .skins-header {
@@ -473,6 +612,12 @@ html, body {
   justify-content: space-between;
   gap: 8px;
   flex-shrink: 0;
+}
+
+.trophies-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .skins-header-actions {
@@ -570,9 +715,9 @@ html, body {
   letter-spacing: 0.04em;
 }
 .skin-tag {
-  font-size: 0.65rem;
+  font-size: 0.64rem;
   font-weight: 800;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.07em;
   padding: 2px 7px;
   border-radius: 999px;
   white-space: nowrap;
@@ -594,6 +739,113 @@ html, body {
   font-size: 0.72rem;
   color: var(--muted);
   line-height: 1.25;
+}
+
+/* ---------- Récords y Trofeos ---------- */
+.records-bar {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.record-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  background: var(--card-bg);
+  border: 1.5px solid var(--stage-border);
+}
+.record-label {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  text-align: center;
+}
+.record-val {
+  font-family: "Courier New", ui-monospace, monospace;
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: var(--accent-1-bright);
+  line-height: 1.1;
+}
+
+.trophies-grid {
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  overflow-y: auto;
+}
+
+.trophy-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--card-bg);
+  border: 1.5px solid rgba(148, 163, 184, 0.28);
+}
+.trophy-card.unlocked {
+  border-color: var(--orange-bright);
+}
+.trophy-card.locked {
+  opacity: 0.68;
+}
+.trophy-card:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+}
+
+.trophy-medal {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  font-size: 1rem;
+  font-weight: 900;
+  background: rgba(100, 116, 139, 0.25);
+  color: var(--muted);
+  border: 1.5px solid rgba(148, 163, 184, 0.35);
+}
+.trophy-card.unlocked .trophy-medal {
+  background: var(--orange-bright);
+  color: var(--text-dark);
+  border-color: var(--orange);
+}
+
+.trophy-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.trophy-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.trophy-name {
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: var(--text);
+}
+.trophy-desc {
+  font-size: 0.7rem;
+  color: var(--muted);
+  line-height: 1.2;
 }
 
 /* ---------- Pantalla intermedia de Torneo ---------- */
@@ -682,7 +934,7 @@ html, body {
 }
 
 .controls-help {
-  font-size: 0.78rem;
+  font-size: 0.76rem;
   color: var(--muted);
   text-align: center;
   max-width: 92%;
@@ -699,22 +951,33 @@ html, body {
 /* ---------- Adaptación para celulares en horizontal ---------- */
 @media (max-height: 520px) {
   :root {
-    --hud-space: 48px;
+    --hud-space: 54px;
   }
   #app {
-    gap: 4px;
+    gap: 3px;
   }
   #hud {
     padding: 0 74px;
   }
   .score .value {
-    font-size: 1.7rem;
+    font-size: 1.55rem;
   }
   .score .label {
-    font-size: 0.66rem;
+    font-size: 0.64rem;
+  }
+  .power-wrap {
+    width: 104px;
+    gap: 4px;
+  }
+  .power-track {
+    height: 5px;
+  }
+  .power-text {
+    font-size: 0.56rem;
+    min-width: 24px;
   }
   .hud-center {
-    font-size: 0.58rem;
+    font-size: 0.56rem;
   }
   .icon-btn {
     width: 32px;
@@ -725,31 +988,32 @@ html, body {
     gap: 4px;
   }
   .overlay {
-    gap: clamp(5px, 1.8vh, 11px);
-    padding: 8px 12px;
+    gap: clamp(4px, 1.5vh, 9px);
+    padding: 7px 12px;
   }
   .tournament-cta {
-    padding: 8px 20px;
-    min-width: min(280px, 78%);
+    padding: 7px 18px;
+    min-width: min(270px, 76%);
   }
   .mode-btn,
   .diff-btn,
   .secondary-btn {
-    min-width: 84px;
-    padding: 6px 10px;
-    font-size: 0.78rem;
+    min-width: 82px;
+    padding: 5px 10px;
+    font-size: 0.75rem;
   }
   .primary-btn {
-    min-width: 138px;
-    padding: 8px 18px;
-    font-size: 0.88rem;
+    min-width: 136px;
+    padding: 7px 18px;
+    font-size: 0.86rem;
   }
-  .skins-overlay {
-    padding: 8px 12px;
+  .skins-overlay,
+  .trophies-overlay {
+    padding: 7px 12px;
     gap: 6px;
   }
   .skins-grid {
-    gap: 7px;
+    gap: 6px;
   }
   .skin-card {
     padding: 6px 9px;
@@ -759,10 +1023,37 @@ html, body {
     height: 15px;
   }
   .skin-name {
-    font-size: 0.78rem;
+    font-size: 0.76rem;
   }
   .skin-desc {
-    font-size: 0.66rem;
+    font-size: 0.65rem;
+  }
+  .record-stat {
+    padding: 4px 6px;
+  }
+  .record-label {
+    font-size: 0.55rem;
+  }
+  .record-val {
+    font-size: 1rem;
+  }
+  .trophies-grid {
+    gap: 6px;
+  }
+  .trophy-card {
+    padding: 5px 8px;
+    gap: 7px;
+  }
+  .trophy-medal {
+    width: 26px;
+    height: 26px;
+    font-size: 0.82rem;
+  }
+  .trophy-name {
+    font-size: 0.74rem;
+  }
+  .trophy-desc {
+    font-size: 0.62rem;
   }
   .step-node {
     padding: 3px 7px;
@@ -772,7 +1063,7 @@ html, body {
     padding: 7px 12px;
   }
   .hint { display: none; }
-  .controls-help { font-size: 0.7rem; }
+  .controls-help { font-size: 0.68rem; }
 }
 
 @media (max-height: 350px) {

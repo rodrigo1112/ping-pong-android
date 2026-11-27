@@ -16,7 +16,8 @@ Versión móvil para Android de **Neon Pong**, empaquetada con **Capacitor** sob
   - **Partida Rápida:** partidos a 7 puntos contra la IA (Fácil, Normal y Difícil).
   - **2 Jugadores (mismo teléfono):** modo local a 7 puntos con **multitáctil** independiente (mitad izquierda J1, mitad derecha J2).
   - **Supervivencia / Récord (1 Jugador):** racha sin límite contra una IA que acelera cada 5 golpes con récord persistente.
-- **Remate y efecto (Smash):** empujá la paleta hacia adelante o deslizala rápido justo al impactar la pelota para lanzar un tiro cargado rojo/naranja más rápido y con leve curva.
+- **Remate (Smash), Barra de Poder y Súper Golpe ("Pelota Furiosa"):** empujar adelante, deslizar rápido o golpear con los bordes dispara un Smash con chispas extra y sonido agudo que carga un **34%** de la Barra de Poder (para J1 y J2 en 2 Jugadores). Al llegar al **100%** (3 Smash), el siguiente impacto desata la **Pelota Furiosa** (núcleo blanco con resplandor rojo/naranja concéntrico sin `shadowBlur`, estela de fuego, vibración de cámara y vibración háptica).
+- **Sistema de Trofeos y Récords (`localStorage`):** panel temático desde el menú principal con récords (torneos ganados, mejor racha de victorias, máximo peloteo y total de Súper Golpes) y 5 trofeos desbloqueables (*Primer Campeón*, *Valla Invicta*, *Imparable*, *Furia Total* y *Leyenda del Ping Pong*) con notificación flotante en pantalla.
 - **Música procedural por cancha (Web Audio API):** 4 bucles musicales originales (synthwave, chiptune 8-bits, pulso tenso y darksynth) sin archivos externos, desconexión limpia de osciladores, pausa automática en pausa/segundo plano y controles independientes de **Música** y **SFX**.
 - **Optimización térmica y de batería:** fondos y sprites pre-renderizados en offscreen canvas, cero `shadowBlur` en runtime, tope estricto a **60 FPS**, `devicePixelRatio` limitado a `1.5` y pausa del bucle en reposo.
 
@@ -33,4 +34,4 @@ cd android
 ./gradlew assembleDebug
 ```
 
-El APK generado quedará en `android/app/build/outputs/apk/debug/ping-pong-v1.4.0-debug.apk`.
+El APK generado quedará en `android/app/build/outputs/apk/debug/ping-pong-v1.5.0-debug.apk`.
